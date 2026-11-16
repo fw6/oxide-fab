@@ -1,0 +1,26 @@
+README.md
+  s_f372dbf1e2cdb4::t_21036406c2ce12 151,153-155,157,179-181
+bins/oxide-server/src/main.rs
+  s_f372dbf1e2cdb4::t_56cf47ff533ec6 290-294
+crates/oxide-sim/src/lib.rs
+  s_f372dbf1e2cdb4::t_56cf47ff533ec6 302-306,368-377
+  s_f372dbf1e2cdb4::t_e575e1f6659a27 1727-1756
+docs/chaos-report.md
+  s_f372dbf1e2cdb4::t_21036406c2ce12 3,13,15,18,24,26-28,33-34,37-38,47-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "4c7f31f8d43840cb9b0b50608cb0448c6d3ddc52",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
