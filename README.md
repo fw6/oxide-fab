@@ -71,8 +71,8 @@ flowchart LR
 
     PUB[outbox 投递者<br/>tokio task] -->|轮询 published_at IS NULL| PG
     PUB -->|HTTP SQL| GT[(GreptimeDB<br/>equipment_telemetry<br/>gem_event / spc_sample / e116_perf)]
-    GT -->|S3| S3[(对象存储<br/>oxide-data)]
-    PG -->|pgBackRest + 逻辑备份| S3B[(对象存储<br/>oxide-backup)]
+    GT -->|S3| S3[(MinIO<br/>oxide-data)]
+    PG -->|pgBackRest + 逻辑备份| S3B[(MinIO<br/>oxide-backup)]
 
     UI[oxide-ui<br/>nsh Rust] -->|snapshot / events?since| API
     GT -->|SPC 降采样| API
@@ -128,7 +128,7 @@ sequenceDiagram
 
 ## 备份、恢复与演练结果
 
-`scripts/backup.sh` 做四件事，全部落到对象存储的 `oxide-backup` bucket：
+`scripts/backup.sh` 做四件事，全部落到 MinIO 的 `oxide-backup` bucket：
 
 1. `pgbackrest --type=full backup`（WAL 持续归档，`archive_timeout=300`）
 2. `pg_dump -Fc` + `pg_dumpall --globals-only`（表级恢复用）
@@ -165,7 +165,7 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 
 > **一个从未被恢复过的备份，在真正需要它的时刻只是一个假设。**
 >
-> 备份仓库不能和数据库同故障域。本演示用对象存储的独立 volume 承载备份，
+> 备份仓库不能和数据库同故障域。本演示用 MinIO 的独立 volume 承载备份，
 > 但仍是**演示级**：同一台机器、同一个 Docker；生产要把仓库放到独立的
 > 对象存储与账号下。
 
@@ -253,9 +253,9 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - 单机、单 PostgreSQL 主库；恢复是重启式，有停机窗口。
 - 机台、SECS/GEM 对端、载具都是仿真的；没有真实 EAP/MES 集成。
 - 对象存储与数据库在同一台机器上，备份仓库只是逻辑隔离（演示级）。
-- 对象存储用 RustFS 而非 MinIO：MinIO 的公开镜像与二进制已无法获取
-  （Docker Hub 401、dl.min.io 410，实测见 [ADR 004](docs/decisions/004-object-store.md)）。
-  S3 接口、bucket 名称与所有客户端不变。
+- MinIO 的公开镜像与二进制已下架（Docker Hub 401、dl.min.io 410，实测见
+  [ADR 004](docs/decisions/004-object-store.md)），因此镜像由 pinned 官方源码在
+  `Dockerfile.minio` 中构建（AGPL-3.0）；bucket 名称、S3 配置与所有客户端不变。
 - 没有认证/授权，API 是内网演示形态。
 - `cargo audit` 忽略两条只涉及 sqlx 可选驱动（`sqlx-sqlite` / `sqlx-mysql`，未编译、未链接）的公告，
   原因写在 [`.cargo/audit.toml`](.cargo/audit.toml)；新增公告仍会让 CI 失败。
@@ -276,7 +276,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型
 - [ADR 003](docs/decisions/003-idempotency.md) — 幂等实现与实测
-- [ADR 004](docs/decisions/004-object-store.md) — 对象存储：RustFS 替代 MinIO 的实测原因
+- [ADR 004](docs/decisions/004-object-store.md) — 对象存储：MinIO 源码构建的原因与实测
 - [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`artifacts/` 下每次运行都会重写）
 
 ## 许可证

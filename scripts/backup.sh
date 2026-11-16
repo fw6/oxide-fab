@@ -19,7 +19,7 @@ S3_ARGS=(
   --s3-region us-east-1
   --s3-access-key-id "${S3_ACCESS_KEY_ID:?run cp .env.example .env}"
   --s3-secret-access-key "${S3_SECRET_ACCESS_KEY:?run cp .env.example .env}"
-  --s3-endpoint http://rustfs:9000
+  --s3-endpoint http://minio:9000
 )
 
 echo "-- PostgreSQL stanza"
@@ -89,9 +89,9 @@ globals_file="pg-globals-${TS}.sql"
 docker compose exec -T postgres pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "$ARTIFACTS/$pg_dump_file"
 docker compose exec -T postgres pg_dumpall -U "$DB_USER" --globals-only > "$ARTIFACTS/$globals_file"
 ls -l "$ARTIFACTS/$pg_dump_file" "$ARTIFACTS/$globals_file" | sed 's/^/   /'
-docker compose run --rm --entrypoint sh bucket-init -c "
+docker compose run --rm --entrypoint sh minio-init -c "
   set -e
-  endpoint=http://rustfs:9000
+  endpoint=http://minio:9000
   aws --endpoint-url \"\$endpoint\" s3 cp /artifacts/${pg_dump_file} s3://${BACKUP_BUCKET}/pg-logical/${TS}/${pg_dump_file} >/dev/null
   aws --endpoint-url \"\$endpoint\" s3 cp /artifacts/${globals_file} s3://${BACKUP_BUCKET}/pg-logical/${TS}/${globals_file} >/dev/null
   echo '   uploaded to s3://${BACKUP_BUCKET}/pg-logical/${TS}/'

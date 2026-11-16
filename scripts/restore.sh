@@ -24,7 +24,7 @@ S3_ARGS=(
   --s3-region us-east-1
   --s3-access-key-id "${S3_ACCESS_KEY_ID:?run cp .env.example .env}"
   --s3-secret-access-key "${S3_SECRET_ACCESS_KEY:?run cp .env.example .env}"
-  --s3-endpoint http://rustfs:9000
+  --s3-endpoint http://minio:9000
 )
 started_ms=$(now_ms)
 

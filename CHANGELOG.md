@@ -39,9 +39,10 @@ semiconductor line.
 - **Backup**: pgBackRest full backups and WAL archiving to the S3-compatible
   object store, logical dumps, GreptimeDB Export/Import V2 snapshots, and a
   point-in-time restore drill in an isolated compose project.
-- **Object store**: RustFS (S3 API) because MinIO's public images and binaries
-  are no longer distributable; bucket names `oxide-data` / `oxide-backup` are
-  unchanged (ADR 004).
+- **Object store**: MinIO, built from the pinned upstream source in
+  `Dockerfile.minio` because MinIO's public images and binaries are no longer
+  distributable; bucket names `oxide-data` / `oxide-backup` are unchanged
+  (ADR 004).
 - **CI/CD**: `ci.yml` (fmt, clippy, tests, audit, `nsh test`, actionlint and a
   full integration run) and `release.yml` (three platforms, checksums, GHCR,
   nsh web package, release notes).

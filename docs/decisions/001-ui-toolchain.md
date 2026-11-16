@@ -41,7 +41,8 @@ HTTP 200 and was read in full before any UI code was written.
 the rows above are the subset this project needed (Rust, components,
 reactivity, layout, testing, networking, CLI, TUI, web, fonts, packaging).
 
-The installed toolchain is `nsh 0.5.0 (f4d68f7)` (`nsh --version`).
+The installed toolchain is `nsh 0.5.0 (f4d68f7)`; CI installs `v0.5.1`
+(`nsh 0.5.1 (224d9a7)`), and both were used while building this app.
 
 ## What the documentation fixes for this project
 
@@ -102,6 +103,34 @@ From `fonts.md` and `rust.md` (Theme): the app's font comes from the theme's
 `font-sans`, so `crates/oxide-ui/theme.json` sets
 `WenQuanYi Micro Hei, Noto Sans CJK SC, …` and every text inherits it. The TUI
 backend converts CJK characters to two Cells, which keeps the columns aligned.
+
+## The TUI is not an nsh package (checked, not assumed)
+
+The brief asks for an nsh package for `--target tui`. nsh cannot produce one:
+
+```text
+$ nsh package crates/oxide-ui --target tui      # 0.5.0 and 0.5.1 alike
+error: invalid value 'tui' for '--target <TARGET>'
+  [possible values: ios, ios-simulator, android, linux, macos, windows, web]
+```
+
+`tui` is a built-in *run/test* target, so the CLI validates and rejects it
+before the documented external-target mechanism (`nsh-platform-<name>`) is
+consulted; a `nsh-platform-tui` program on `PATH` is never reached. The latest
+CLI documentation (`https://nsh.dev/docs/cli.md`, read 2026-11-17) still lists
+the same seven package targets, and the nightly release of 2026-11-16 ships the
+same CLI. There is therefore no published nsh version that supports
+`nsh package --target tui`.
+
+What the release ships instead, and how the TUI is verified:
+
+- `oxide-ui-<version>-tui.tar.gz` contains the app description (`app.json`)
+  and the crate the terminal host mounts; `cd app && nsh run --target tui`
+  runs it with an installed nsh.
+- `nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml`
+  builds the terminal development host and runs the app through the terminal
+  renderer in an in-memory terminal (the CI-safe path documented in
+  `testing-and-trace.md`), which is the TUI target being built and run.
 
 ## Evidence produced by this repository
 

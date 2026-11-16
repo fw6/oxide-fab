@@ -1,0 +1,38 @@
+# MinIO, built from its official source at a pinned release.
+#
+# The upstream Docker Hub repository and dl.min.io binaries are no longer
+# publicly available (Docker Hub answers 401, dl.min.io answers 410 as of
+# 2026-11-16), but the archived source tree still builds. This image carries
+# the unmodified upstream binary; MinIO is AGPL-3.0 (see the upstream LICENSE).
+#
+# The runtime is `scratch`: MinIO is a static Go binary, so no distribution is
+# needed and the image stays small. The data directory is created with the
+# non-root owner so a fresh named volume inherits it.
+FROM golang:1.24-alpine AS build
+
+ARG MINIO_RELEASE=RELEASE.2025-10-15T17-29-55Z
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /src
+RUN git clone --depth 1 --branch "${MINIO_RELEASE}" https://github.com/minio/minio.git . \
+    && COMMIT="$(git rev-parse --short=12 HEAD)" \
+    && CGO_ENABLED=0 go build -trimpath \
+         -ldflags "-s -w \
+           -X github.com/minio/minio/cmd.Version=${MINIO_RELEASE} \
+           -X github.com/minio/minio/cmd.CopyrightYear=2025 \
+           -X github.com/minio/minio/cmd.ReleaseTag=${MINIO_RELEASE} \
+           -X github.com/minio/minio/cmd.CommitID=${COMMIT} \
+           -X github.com/minio/minio/cmd.ShortCommitID=${COMMIT}" \
+         -o /out/minio .
+
+RUN mkdir -p /out/data
+
+FROM scratch
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+COPY --from=build --chown=10001:10001 /out/minio /minio
+COPY --from=build --chown=10001:10001 /out/data /data
+
+EXPOSE 9000 9001
+USER 10001:10001
+ENTRYPOINT ["/minio"]
+CMD ["server", "/data", "--console-address", ":9001"]

@@ -3,10 +3,28 @@ name: Release
 # A tag publishes only what CI has already verified: the workflow calls ci.yml
 # first, then builds the three platforms, the nsh packages, the checksums and
 # the container image.
+#
+# It can also be run by hand in dry-run mode, which builds and checksums every
+# artifact (three binaries, the nsh packages) and builds the image without
+# pushing it or creating a GitHub release.
 
 on:
   push:
     tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to build, e.g. 0.1.0 (default: 0.0.0-dryrun-<run>)"
+        required: false
+        default: ""
+      dry_run:
+        description: "Build everything, skip the GHCR push and the GitHub release"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -14,6 +32,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
 
 jobs:
   ci:
@@ -44,6 +63,21 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: Resolve the version
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            if [ -z "$version" ]; then
+              version="0.0.0-dryrun-${GITHUB_RUN_NUMBER}"
+            fi
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          version="${version#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
       - name: Build
         run: cargo build --release --locked --bin oxide
 
@@ -52,8 +86,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          name="oxide-server-${version}-${{ matrix.target }}"
+          name="oxide-server-${VERSION}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
           cp target/release/oxide "dist/${name}/oxide"
           cp README.md LICENSE "dist/${name}/"
@@ -64,8 +97,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME -replace '^v', ''
-          $name = "oxide-server-$version-${{ matrix.target }}"
+          $name = "oxide-server-$env:VERSION-${{ matrix.target }}"
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item target/release/oxide.exe "dist/$name/oxide.exe"
           Copy-Item README.md, LICENSE "dist/$name/"
@@ -106,32 +138,41 @@ jobs:
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         env:
-          NSH_VERSION: v0.5.0
+          NSH_VERSION: v0.5.1
+
+      - name: Resolve the version
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            if [ -z "$version" ]; then
+              version="0.0.0-dryrun-${GITHUB_RUN_NUMBER}"
+            fi
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          version="${version#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Build the web package
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          build="$(( GITHUB_RUN_NUMBER ))"
           nsh package crates/oxide-ui --target web \
-            --name "oxide-ui" --app-version "$version" --build "$build" \
+            --name "oxide-ui" --app-version "$VERSION" --build "$GITHUB_RUN_NUMBER" \
             -o dist/web
-          tar -C dist/web -czf "dist/oxide-ui-${version}-web.tar.gz" .
-          echo "WEB=dist/oxide-ui-${version}-web.tar.gz" >> "$GITHUB_ENV"
+          tar -C dist/web -czf "dist/oxide-ui-${VERSION}-web.tar.gz" .
 
       - name: Build the TUI package
-        # nsh 0.5.0 has no `package --target tui`: the TUI is produced by
-        # `nsh build` (app.json + assets) and run with `nsh run --target tui`.
-        # The TUI host is built and exercised here before it is archived.
+        # nsh 0.5.0, 0.5.1 and the nightly all reject `--target tui` for
+        # `package` (the value is a built-in run/test target, so the external
+        # target mechanism is not reached). The TUI is therefore shipped as the
+        # app description plus the sources the terminal host mounts, and the
+        # TUI target itself is exercised by `nsh test --target tui` below.
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
           mkdir -p artifacts
           nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml
           nsh build crates/oxide-ui --release -o "dist/tui"
-          # nsh 0.5.0 has no `package --target tui`. Ship the app description
-          # together with the sources the terminal host mounts, so the archive
-          # is runnable with an installed nsh.
           mkdir -p dist/tui/app/src dist/tui/app/tests
           cp crates/oxide-ui/{Cargo.toml,Cargo.lock,nsh.json,theme.json,App.test.tsx} dist/tui/app/
           cp crates/oxide-ui/src/*.rs dist/tui/app/src/
@@ -140,7 +181,7 @@ jobs:
           cat > "dist/tui/RUNNING.txt" <<'TXT'
           oxide-ui — the terminal dashboard.
 
-          nsh 0.5.0 has no `nsh package --target tui`; this archive carries the
+          nsh 0.5.x has no `nsh package --target tui`; this archive carries the
           app description (app.json) and the crate the terminal host mounts.
           With nsh installed:
 
@@ -151,8 +192,7 @@ jobs:
           (`nsh test crates/oxide-ui --target tui`); see the release notes for
           the limits of this packaging.
           TXT
-          tar -C dist -czf "dist/oxide-ui-${version}-tui.tar.gz" tui
-          echo "TUI=dist/oxide-ui-${version}-tui.tar.gz" >> "$GITHUB_ENV"
+          tar -C dist -czf "dist/oxide-ui-${VERSION}-tui.tar.gz" tui
 
       - uses: actions/upload-artifact@v4
         with:
@@ -168,34 +208,79 @@ jobs:
           path: artifacts/nsh-tui-tests.xml
           if-no-files-found: warn
 
-  image:
-    name: container image (GHCR)
+  checksums:
+    name: SHA256SUMS
     needs: [binaries, nsh-packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Compute the checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f SHA256SUMS.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+          test "$(wc -l < SHA256SUMS.txt)" -ge 5
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums
+          path: dist/SHA256SUMS.txt
+          if-no-files-found: error
+
+  image:
+    name: container image
+    needs: checksums
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve the version
+        run: |
+          set -euo pipefail
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            if [ -z "$version" ]; then
+              version="0.0.0-dryrun-${GITHUB_RUN_NUMBER}"
+            fi
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          version="${version#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+
       - name: Log in to GHCR
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Validate the Dockerfile builds
+        run: docker build -f Dockerfile -t "oxide-fab:${VERSION}" .
+
       - name: Build and push
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          docker build -f Dockerfile \
-            -t "ghcr.io/fw6/oxide-fab:${version}" \
-            -t "ghcr.io/fw6/oxide-fab:latest" .
-          docker push "ghcr.io/fw6/oxide-fab:${version}"
+          docker tag "oxide-fab:${VERSION}" "ghcr.io/fw6/oxide-fab:${VERSION}"
+          docker tag "oxide-fab:${VERSION}" "ghcr.io/fw6/oxide-fab:latest"
+          docker push "ghcr.io/fw6/oxide-fab:${VERSION}"
           docker push "ghcr.io/fw6/oxide-fab:latest"
 
   release:
     name: publish
-    needs: [binaries, nsh-packages, image]
+    needs: [checksums, image]
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -212,21 +297,25 @@ jobs:
           name: oxide-evidence
           path: artifacts
 
-      - name: Checksums
+      - name: Resolve the version
         run: |
           set -euo pipefail
-          cd dist
-          rm -f SHA256SUMS.txt
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
-            -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
-          cat SHA256SUMS.txt
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            version="${{ inputs.version }}"
+            if [ -z "$version" ]; then
+              version="0.0.0-dryrun-${GITHUB_RUN_NUMBER}"
+            fi
+          else
+            version="${GITHUB_REF_NAME}"
+          fi
+          version="${version#v}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
 
       - name: Release notes
         run: |
           set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
           cat > NOTES.md <<EOF
-          oxide-fab ${version} — 氧化层
+          oxide-fab ${VERSION} — 氧化层
 
           运行整个演示：
 
@@ -238,7 +327,7 @@ jobs:
 
               sha256sum -c SHA256SUMS.txt        # macOS: shasum -a 256 -c
 
-          镜像：\`ghcr.io/fw6/oxide-fab:${version}\` 与 \`:latest\`。
+          镜像：\`ghcr.io/fw6/oxide-fab:${VERSION}\` 与 \`:latest\`。
 
           已知限制（请如实阅读）：
 
@@ -249,7 +338,7 @@ jobs:
           - **桌面目标（macOS / Windows / Linux 桌面）不产出 nsh 包**：nsh 包
             只由 ubuntu job 产出，共两件（web 与 tui）；桌面交付物是
             \`oxide-server-<version>-<target>\` 二进制包。
-          - nsh 0.5.0 的 \`nsh package\` 没有 \`tui\` 目标：TUI 产物是
+          - nsh 0.5.x 的 \`nsh package\` 没有 \`tui\` 目标：TUI 产物是
             \`nsh build\` 的应用包 + 应用源码，用已安装的 nsh 运行
             （\`cd app && nsh run --target tui\`）。
 
