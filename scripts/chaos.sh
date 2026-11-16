@@ -10,6 +10,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 start_log chaos
 
 REPORT="$ARTIFACTS/chaos-report.md"
+# The report is committed to docs/, so it names its evidence by its path in the
+# repository rather than by this machine's absolute path.
+LOG_REL="artifacts/$(basename "$LOG")"
 container_health() {
   local id
   id=$(docker compose ps -q "$1")
@@ -105,7 +108,7 @@ scenario_kill_store() {
 - **RTO: ${rto_ms} ms** — from \`docker compose stop greptimedb\` until the outbox drained
 - After catch-up: events=${events_after}, published=${published_after}, pending=${pending_after}, Greptime rows=${greptime_rows}
 - Lot state preserved: completed lots before=${completed_before}, after=${completed_after}
-- Evidence: \`${LOG}\`
+- Evidence: \`${LOG_REL}\`
 - Conclusion: the collector never lost a point; delivery resumed automatically. This is buffering + catch-up, not a failover.
 
 EOF
@@ -173,7 +176,7 @@ scenario_kill_db() {
 - **RPO: 0 events lost**
 - **RTO: ${rto_ms} ms** — including the PostgreSQL restart and WAL recovery
 - After recovery: published=${published_after}, outbox pending=${pending_after}
-- Evidence: \`${LOG}\`
+- Evidence: \`${LOG_REL}\`
 - Conclusion: no dirty writes while the database was gone; the buffered batch committed once it returned. Restart-based recovery, not automatic failover.
 
 EOF
@@ -270,7 +273,7 @@ scenario_secs_reconnect() {
 - **RPO: 0 GEM events** — the equipment spool held every report (spooled total ${spooled_after}, replayed total ${replayed_after}, unsent ${lost})
 - **RTO: ${rto_ms} ms** — from the drop until the spool drained and the link was up again
 - Link drops: ${drops_before} -> ${drops_after}
-- Evidence: \`artifacts/secs-reconnect.json\`, \`${LOG}\`
+- Evidence: \`artifacts/secs-reconnect.json\`, \`${LOG_REL}\`
 - Conclusion: the tool spooled S6F11/S5F1 reports and replayed them on reconnect, the same buffering idea as the outbox one layer down.
 
 EOF
