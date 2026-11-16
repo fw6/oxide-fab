@@ -1,0 +1,23 @@
+docker-compose.yml
+  s_f372dbf1e2cdb4::t_f051bf0c27c873 69
+docs/decisions/001-ui-toolchain.md
+  s_f372dbf1e2cdb4::t_77d227a0269917 110
+README.md
+  s_f372dbf1e2cdb4::t_77d227a0269917 52-53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "db5d81e1d931f22dd8cc7482ce64fc2d186a2762",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
