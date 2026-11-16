@@ -1,0 +1,25 @@
+README.md
+  s_f372dbf1e2cdb4::t_617130d996be38 179,181-182
+scripts/chaos.sh
+  s_f372dbf1e2cdb4::t_b61de517115713 13-15
+  s_f372dbf1e2cdb4::t_f9ed4e4122e7f2 111,179
+  s_f372dbf1e2cdb4::t_f23f61dd7ba6a2 276
+docs/chaos-report.md
+  s_f372dbf1e2cdb4::t_34f0c3eba0293a 3,11-12,15,18,24,26-28,34-38,43,47-48,57-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "484c61495c2ef5073bc980fd6b1e19efd07e213f",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
