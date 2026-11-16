@@ -107,7 +107,7 @@ backend converts CJK characters to two Cells, which keeps the columns aligned.
 
 | What | Command | Evidence |
 |---|---|---|
-| Rust + TSX UI tests (9 Rust tests, 1 TSX test) | `nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml` | `artifacts/nsh-tests.xml` |
+| Rust + TSX UI tests (10 tests: 9 Rust, 1 TSX) | `nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml` | `artifacts/nsh-tests.xml` |
 | Web target built and run in headless Chrome | `nsh test crates/oxide-ui --target web --junit artifacts/nsh-web-tests.xml` | `artifacts/nsh-web-tests.xml`, `artifacts/ui-web.log` |
 | Web dev server serves the app | `nsh run --target web --port 8123` → `GET /` returns 200 | `artifacts/ui-web-run.log` |
 | Web package (what the release ships) | `nsh package crates/oxide-ui --target web -o /tmp/oxide-web` | `artifacts/ui-web-package.log`, `docs/screenshots/dashboard-web.png` |

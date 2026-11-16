@@ -49,8 +49,8 @@ UI 的测试与双目标验证：
 
 ```sh
 nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml            # Rust + TSX
-nsh test crates/oxide-ui --target web  --junit artifacts/nsh-web.xml
-nsh test crates/oxide-ui --target tui  --junit artifacts/nsh-tui.xml
+nsh test crates/oxide-ui --target web  --junit artifacts/nsh-web-tests.xml
+nsh test crates/oxide-ui --target tui  --junit artifacts/nsh-tui-tests.xml
 nsh package crates/oxide-ui --target web -o dist/web                # release 产物
 ```
 
