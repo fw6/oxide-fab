@@ -148,13 +148,13 @@ up    → 拉起 → 等 pg_is_in_recovery()=false → 校验
 
 ```json
 {
-  "target_time": "2026-11-16 16:20:08.346439+00",
+  "target_time": "2026-11-16 16:56:20.969048+00",
   "lots": 6,
-  "events": 92,
-  "max_created_at": "2026-11-16T16:20:05.850000Z",
-  "max_event_at": "2026-11-16T16:20:34.780000Z",
+  "events": 106,
+  "max_created_at": "2026-11-16T16:56:32.341000Z",
+  "max_event_at": "2026-11-16T16:57:17.111000Z",
   "greptime_rows": 24,
-  "elapsed_ms": 81870,
+  "elapsed_ms": 81502,
   "ok": true
 }
 ```
@@ -171,14 +171,15 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 
 ## 故障注入实测（RPO / RTO）
 
-`scripts/chaos.sh` 每次运行都会重写 [artifacts/chaos-report.md](artifacts/chaos-report.md)，
-下面是本机一次真实运行的结果：
+`scripts/chaos.sh` 每次运行都会重写 [docs/chaos-report.md](docs/chaos-report.md)，
+下面是本机一次真实运行的结果（三个数据面场景 + 一个 SECS 断链场景）：
 
 | 场景 | 做了什么 | RPO（丢事件） | RTO（含重启） | 结论 |
 |---|---|---|---|---|
-| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.6 s** | 恢复后自动追平，Lot 状态不丢 |
-| kill-db | 停 PostgreSQL 10 s | **0** | **19.0 s** | API 全程返回 503，恢复后把内存里那一批提交 |
-| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.1 s** | 行数与 `max(created_at)` 与源库一致 |
+| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.5 s** | 恢复后自动追平，Lot 状态不丢 |
+| kill-db | 停 PostgreSQL 10 s | **0** | **18.9 s** | API 全程返回 503，恢复后把内存里那一批提交 |
+| secs-reconnect | 断开 HSMS 链路 5 s，产线继续 | **0**（断链期间 37 条 S6F11/S5F1 进入机台 spool） | **5.3 s** | 重连后补传 37 条，unsent=0 |
+| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **90.8 s** | 行数与 `max(created_at)` 与源库一致 |
 
 > **这是单机重启式恢复，不是自动 failover。** RTO 包含容器重启、WAL 恢复、
 > 投递追平的时间；档 B 用 Patroni + etcd 才能谈自动切换。

@@ -177,7 +177,14 @@ impl SecsHandle {
     /// Close the HSMS session for 1.5 s; the equipment spools what happens
     /// meanwhile and replays it once the host is back.
     pub fn drop_link(&self) {
-        let _ = self.host_tasks.send(HostTask::DropLink { hold_ms: 1500 });
+        self.drop_link_for(1500);
+    }
+
+    /// Close the HSMS session for `hold_ms` (100 ms .. 30 s).
+    pub fn drop_link_for(&self, hold_ms: i64) {
+        let _ = self.host_tasks.send(HostTask::DropLink {
+            hold_ms: hold_ms.clamp(100, 30_000),
+        });
     }
 
     pub fn shutdown(&self) {

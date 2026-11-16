@@ -124,10 +124,12 @@ impl PgStore {
 
         for step in &scenario.route.steps {
             sqlx::query(
-                "INSERT INTO route_step (route_id, step_no, name, equipment_kind, recipe_id, duration_ms, target, ucl, lcl)
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                "INSERT INTO route_step (route_id, step_no, name, equipment_kind, equipment_qualification,
+                                         recipe_id, duration_ms, target, ucl, lcl)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                  ON CONFLICT (route_id, step_no) DO UPDATE SET
                    name = EXCLUDED.name, equipment_kind = EXCLUDED.equipment_kind,
+                   equipment_qualification = EXCLUDED.equipment_qualification,
                    recipe_id = EXCLUDED.recipe_id, duration_ms = EXCLUDED.duration_ms,
                    target = EXCLUDED.target, ucl = EXCLUDED.ucl, lcl = EXCLUDED.lcl",
             )
@@ -135,6 +137,10 @@ impl PgStore {
             .bind(step.step_no)
             .bind(&step.name)
             .bind(&step.equipment_kind)
+            .bind(
+                serde_json::to_value(&step.equipment_qualification)
+                    .map_err(|error| StoreError::Message(error.to_string()))?,
+            )
             .bind(&step.recipe_id)
             .bind(step.duration_ms)
             .bind(step.target)

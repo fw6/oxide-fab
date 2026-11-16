@@ -288,6 +288,7 @@ mod tests {
                 step_no: 4,
                 name: "metrology".into(),
                 equipment_kind: "metrology".into(),
+                equipment_qualification: vec!["MET-01".into()],
                 recipe_id: "RCP-METRO".into(),
                 duration_ms: 5000,
                 target: Some(100.0),

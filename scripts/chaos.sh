@@ -181,9 +181,106 @@ EOF
   return 0
 }
 
+scenario_secs_reconnect() {
+  echo
+  echo "===== scenario 3: secs-reconnect (HSMS link dropped for 5 s) ====="
+  api_post /admin/reset >/dev/null
+  api_post /api/sim/speed/10 >/dev/null
+  api_post /api/sim/play >/dev/null
+  wait_snapshot 'd["db"]["events"] > 8' 120 || true
+
+  before=$(api_get /api/secs)
+  replayed_before=$(echo "$before" | json spooled_replayed)
+  spooled_before=$(echo "$before" | json spooled_total)
+  drops_before=$(echo "$before" | json link_drops)
+  echo "   before: spooled=${spooled_before} replayed=${replayed_before} drops=${drops_before}"
+
+  echo "   dropping the HSMS link for 5 s while the line keeps running"
+  drop_ms=$(now_ms)
+  api_post '/api/secs/drop?hold_ms=5000' >/dev/null
+
+  peak=0
+  replayed_at_down=""
+  # Phase 1: wait until the equipment has noticed the link is gone.
+  connected="True"
+  for _ in $(seq 1 100); do
+    status=$(api_get /api/secs)
+    depth=$(echo "$status" | json spool_depth)
+    [ "$depth" -gt "$peak" ] && peak=$depth
+    connected=$(echo "$status" | json host_connected)
+    if [ "$connected" = "False" ]; then
+      replayed_at_down=$(echo "$status" | json spooled_replayed)
+      break
+    fi
+    sleep 0.1
+  done
+  if [ "$connected" != "False" ]; then
+    echo "FAIL: the link never went down"
+    return 1
+  fi
+  echo "   link down, spooling"
+
+  # Phase 2: while it is down the spool grows; when it is back, the spool
+  # drains. Both are measured here.
+  for _ in $(seq 1 1200); do
+    status=$(api_get /api/secs)
+    depth=$(echo "$status" | json spool_depth)
+    [ "$depth" -gt "$peak" ] && peak=$depth
+    connected=$(echo "$status" | json host_connected)
+    if [ "$connected" = "True" ] && [ "$depth" = "0" ]; then
+      break
+    fi
+    sleep 0.05
+  done
+  replayed_at_end=$(echo "$status" | json spooled_replayed)
+  [ -n "$replayed_at_down" ] || replayed_at_down="$replayed_before"
+  rto_ms=$(( $(now_ms) - drop_ms ))
+  api_post /api/sim/pause >/dev/null
+  sleep 1
+  after=$(api_get /api/secs)
+  echo "$after" > "$ARTIFACTS/secs-reconnect.json"
+
+  replayed_after=$(echo "$after" | json spooled_replayed)
+  spooled_after=$(echo "$after" | json spooled_total)
+  drops_after=$(echo "$after" | json link_drops)
+  depth_after=$(echo "$after" | json spool_depth)
+  connected_after=$(echo "$after" | json host_connected)
+  s6f11_after=$(echo "$after" | json s6f11_sent)
+  s5f1_after=$(echo "$after" | json s5f1_sent)
+
+  drain_replayed=$(( replayed_at_end - replayed_at_down ))
+  # At quiescence every spooled report must have been sent; the absolute
+  # counters are comparable even when the window boundaries differ by one.
+  lost=$(( spooled_after - replayed_after ))
+  echo "   after: spooled=${spooled_after} replayed=${replayed_after} drained=${drain_replayed} unsent=${lost} spool_depth=${depth_after} connected=${connected_after}"
+
+  if [ "$connected_after" != "True" ] || [ "$depth_after" != "0" ] || [ "$drops_after" -le "$drops_before" ] || [ "$drain_replayed" -lt "$peak" ] || [ "$lost" -ne 0 ]; then
+    echo "FAIL: the SECS spool did not drain cleanly"
+    return 1
+  fi
+
+  SECS_RTO="$rto_ms"
+  SECS_PEAK="$peak"
+  SECS_REPLAYED="$drain_replayed"
+  cat >> "$REPORT" <<EOF
+## 3. secs-reconnect — HSMS link dropped for 5 s
+
+- Equipment spool peak while the link was down: **${peak} GEM events**
+- Replayed from the drop until the spool emptied: **${drain_replayed} events** (peak ${peak}; S6F11 sent: ${s6f11_after}, S5F1 sent: ${s5f1_after})
+- **RPO: 0 GEM events** — the equipment spool held every report (spooled total ${spooled_after}, replayed total ${replayed_after}, unsent ${lost})
+- **RTO: ${rto_ms} ms** — from the drop until the spool drained and the link was up again
+- Link drops: ${drops_before} -> ${drops_after}
+- Evidence: \`artifacts/secs-reconnect.json\`, \`${LOG}\`
+- Conclusion: the tool spooled S6F11/S5F1 reports and replayed them on reconnect, the same buffering idea as the outbox one layer down.
+
+EOF
+  echo "   PASS"
+  return 0
+}
+
 scenario_restore_drill() {
   echo
-  echo "===== scenario 3: restore-drill ====="
+  echo "===== scenario 4: restore-drill ====="
   drill_start=$(now_ms)
   if ! ./scripts/restore.sh >"$ARTIFACTS/chaos-restore-${TS}.log" 2>&1; then
     echo "FAIL: the restore drill failed; see $ARTIFACTS/chaos-restore-${TS}.log"
@@ -200,7 +297,7 @@ scenario_restore_drill() {
 
   DRILL_RTO="$drill_ms"
   cat >> "$REPORT" <<EOF
-## 3. restore-drill — isolated point-in-time restore
+## 4. restore-drill — isolated point-in-time restore
 
 - Target time: **${target}**
 - Restored rows: lots=**${lots}**, events=**${events}**, Greptime rows=**${rows}**
@@ -229,6 +326,7 @@ EOF
 failures=0
 scenario_kill_store || failures=$((failures + 1))
 scenario_kill_db || failures=$((failures + 1))
+scenario_secs_reconnect || failures=$((failures + 1))
 scenario_restore_drill || failures=$((failures + 1))
 
 cat >> "$REPORT" <<EOF
@@ -240,6 +338,7 @@ cat >> "$REPORT" <<EOF
 |---|---|---|
 | kill-store (GreptimeDB 30 s) | 0 events (${STORE_BUFFERED:-?} buffered and replayed) | ${STORE_RTO:-?} ms |
 | kill-db (PostgreSQL 10 s) | 0 events | ${DB_RTO:-?} ms |
+| secs-reconnect (HSMS 5 s) | 0 GEM events (${SECS_PEAK:-?} spooled, ${SECS_REPLAYED:-?} replayed) | ${SECS_RTO:-?} ms |
 | restore-drill (isolated PITR) | 0 events to restore point | ${DRILL_RTO:-?} ms |
 
 Limits of this drill: single host, single PostgreSQL primary, no Patroni, no
@@ -253,4 +352,4 @@ if [ "$failures" -ne 0 ]; then
   exit 1
 fi
 api_post /api/sim/play >/dev/null || true
-echo "PASS: three chaos scenarios completed"
+echo "PASS: four chaos scenarios completed"

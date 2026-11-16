@@ -246,11 +246,21 @@ jobs:
           - 机台与 SECS/GEM 对端是仿真的（simulated tool only），未接真实机台，
             未通过任何 SEMI 认证。
           - 开源版 GreptimeDB standalone：没有读副本、没有双活。
+          - **桌面目标（macOS / Windows / Linux 桌面）不产出 nsh 包**：nsh 包
+            只由 ubuntu job 产出，共两件（web 与 tui）；桌面交付物是
+            \`oxide-server-<version>-<target>\` 二进制包。
           - nsh 0.5.0 的 \`nsh package\` 没有 \`tui\` 目标：TUI 产物是
-            \`nsh build\` 的应用包 + 已安装的 nsh（\`nsh run --target tui\`）。
+            \`nsh build\` 的应用包 + 应用源码，用已安装的 nsh 运行
+            （\`cd app && nsh run --target tui\`）。
 
-          变更记录见 CHANGELOG.md。
+          ## 变更记录（CHANGELOG 片段）
+
           EOF
+          {
+            awk 'BEGIN{p=0} /^## \[/{p++} p==1{print} p==2{exit}' CHANGELOG.md
+            echo ""
+            echo "完整记录见仓库的 CHANGELOG.md。"
+          } >> NOTES.md
           cat NOTES.md
 
       - name: Publish

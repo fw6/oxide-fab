@@ -137,6 +137,12 @@ pub struct RouteStep {
     pub name: String,
     /// The kind of tool this step needs (`clean`, `litho`, ...).
     pub equipment_kind: String,
+    /// The tools of that kind that are qualified to run the step, by id.
+    ///
+    /// Filled from the scenario's equipment when the file leaves it out, so
+    /// the route step carries the qualification the dispatcher checks.
+    #[serde(default)]
+    pub equipment_qualification: Vec<String>,
     pub recipe_id: String,
     pub duration_ms: i64,
     /// Nominal measured value, for metrology steps.

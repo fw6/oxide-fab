@@ -390,13 +390,23 @@ pub async fn secs_status(State(state): State<Shared>) -> Json<Value> {
     }
 }
 
-pub async fn secs_drop(State(state): State<Shared>) -> Result<Json<Value>, ApiError> {
+#[derive(Debug, Deserialize)]
+pub struct DropQuery {
+    /// How long the host stays away, in milliseconds (default 1500).
+    pub hold_ms: Option<i64>,
+}
+
+pub async fn secs_drop(
+    State(state): State<Shared>,
+    Query(query): Query<DropQuery>,
+) -> Result<Json<Value>, ApiError> {
     let handle = state
         .secs
         .as_ref()
         .ok_or_else(|| ApiError::BadRequest("SECS is not enabled".to_owned()))?;
-    handle.drop_link();
-    Ok(Json(json!({ "dropped": true })))
+    let hold_ms = query.hold_ms.unwrap_or(1500);
+    handle.drop_link_for(hold_ms);
+    Ok(Json(json!({ "dropped": true, "hold_ms": hold_ms })))
 }
 
 pub async fn secs_upload_recipe(

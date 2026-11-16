@@ -1073,6 +1073,11 @@ impl Simulation {
             .filter(|runtime| runtime.equipment.kind == step.equipment_kind)
             .filter(|runtime| runtime.equipment.is_available())
             .filter(|runtime| runtime.equipment.qualified_for(&step.recipe_id))
+            .filter(|runtime| {
+                step.equipment_qualification
+                    .iter()
+                    .any(|id| id == &runtime.equipment.id)
+            })
             .map(|runtime| runtime.equipment.id.clone())
             .min()
     }
@@ -1582,8 +1587,8 @@ mod tests {
     use oxide_core::model::EquipmentState;
 
     fn scenario() -> Scenario {
-        let mut scenario: Scenario =
-            serde_json::from_str(include_str!("../../../config/scenario.json")).unwrap();
+        let mut scenario =
+            Scenario::from_json(include_str!("../../../config/scenario.json")).unwrap();
         // Keep tests short and deterministic: no random failures.
         scenario.failure_probability = 0.0;
         scenario.lot_count = 2;

@@ -16,8 +16,8 @@ semiconductor line.
   partial lots and a repeated track-out.
 - **Simulation**: `oxide-sim`, a discrete-event engine on `BinaryHeap` with
   tool buckets, per-step queues, a hand-written dispatcher (priority, FIFO,
-  qualification matrix, verified recipe), failure injection and
-  snapshot/resume.
+  the route step's `equipment_qualification` list and each tool's qualification
+  matrix, verified recipe), failure injection and snapshot/resume.
 - **Persistence**: PostgreSQL `lot_event` as the append-only truth, projections
   written in the same transaction, a transactional `outbox`, a
   `published_event` ledger, `snapshot` and `audit_log` (`migrations/`).
@@ -33,7 +33,9 @@ semiconductor line.
   and the replay, reset, redeliver and report admin endpoints.
 - **UI**: `oxide-ui`, an nsh app in pure Rust mode for web and TUI.
 - **Ops**: `scripts/smoke.sh`, `replay.sh`, `idempotency.sh`, `backup.sh`,
-  `restore.sh`, `chaos.sh` — all run against the compose stack.
+  `restore.sh`, `chaos.sh` — all run against the compose stack. The chaos
+  report covers four scenarios: GreptimeDB down, PostgreSQL down, an HSMS link
+  drop with equipment spool replay, and an isolated point-in-time restore.
 - **Backup**: pgBackRest full backups and WAL archiving to the S3-compatible
   object store, logical dumps, GreptimeDB Export/Import V2 snapshots, and a
   point-in-time restore drill in an isolated compose project.

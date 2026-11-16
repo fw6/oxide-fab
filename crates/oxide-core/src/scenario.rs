@@ -74,8 +74,33 @@ pub struct Scenario {
 
 impl Scenario {
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
-        let scenario: Scenario = serde_json::from_str(json)?;
+        let mut scenario: Scenario = serde_json::from_str(json)?;
+        scenario.fill_qualifications();
         Ok(scenario)
+    }
+
+    /// Give every step its qualified tool ids when the file leaves them out.
+    ///
+    /// `route_step.equipment_qualification` is what the dispatcher checks, so
+    /// it must never be empty for a runnable route.
+    fn fill_qualifications(&mut self) {
+        let equipment = self.equipment.clone();
+        for step in &mut self.route.steps {
+            if !step.equipment_qualification.is_empty() {
+                continue;
+            }
+            step.equipment_qualification = equipment
+                .iter()
+                .filter(|tool| {
+                    tool.kind == step.equipment_kind
+                        && tool
+                            .qualification
+                            .iter()
+                            .any(|recipe| recipe == &step.recipe_id)
+                })
+                .map(|tool| tool.id.clone())
+                .collect();
+        }
     }
 
     pub fn recipes(&self) -> Vec<Recipe> {
@@ -108,15 +133,25 @@ impl Scenario {
                     step.step_no, step.recipe_id
                 ));
             }
-            if !self
-                .equipment
-                .iter()
-                .any(|e| e.kind == step.equipment_kind && e.qualification.contains(&step.recipe_id))
-            {
+            if step.equipment_qualification.is_empty() {
                 return Err(format!(
                     "no tool of kind {} is qualified for {}",
                     step.equipment_kind, step.recipe_id
                 ));
+            }
+            for tool_id in &step.equipment_qualification {
+                let tool = self
+                    .equipment
+                    .iter()
+                    .find(|tool| &tool.id == tool_id)
+                    .ok_or_else(|| format!("step {} names unknown tool {tool_id}", step.step_no))?;
+                if tool.kind != step.equipment_kind || !tool.qualification.contains(&step.recipe_id)
+                {
+                    return Err(format!(
+                        "tool {tool_id} is not qualified for step {}",
+                        step.step_no
+                    ));
+                }
             }
         }
         if self.wafers_per_lot <= 0 {
@@ -131,7 +166,7 @@ mod tests {
     use super::*;
 
     fn sample() -> Scenario {
-        serde_json::from_str(include_str!("../../../config/scenario.json")).unwrap()
+        Scenario::from_json(include_str!("../../../config/scenario.json")).unwrap()
     }
 
     #[test]
@@ -146,6 +181,23 @@ mod tests {
             .map(|s| s.name.as_str())
             .collect();
         assert_eq!(names, ["clean", "litho", "etch", "metrology"]);
+    }
+
+    #[test]
+    fn every_step_names_the_tools_qualified_for_it() {
+        let scenario = sample();
+        let steps = &scenario.route.steps;
+        assert_eq!(steps[0].equipment_qualification, vec!["CLN-01", "CLN-02"]);
+        assert_eq!(steps[1].equipment_qualification, vec!["LIT-01", "LIT-02"]);
+        assert_eq!(steps[2].equipment_qualification, vec!["ETC-01"]);
+        assert_eq!(steps[3].equipment_qualification, vec!["MET-01"]);
+    }
+
+    #[test]
+    fn a_step_naming_an_unqualified_tool_is_rejected() {
+        let mut scenario = sample();
+        scenario.route.steps[0].equipment_qualification = vec!["ETC-01".to_owned()];
+        assert!(scenario.validate().is_err());
     }
 
     #[test]
