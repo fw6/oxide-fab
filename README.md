@@ -37,6 +37,9 @@ docker compose up -d --wait
 清洗 → 光刻 → 刻蚀 → 量测，然后逐片校验四个工序的 genealogy、outbox 是否
 全部投递、GreptimeDB 行数是否对得上。
 
+`docker compose up` 会在本机构建 `oxide` 与 MinIO 镜像；release 流程另外发布
+预构建镜像 `ghcr.io/fw6/oxide-fab:latest`（linux/amd64 + linux/arm64）。
+
 看板：
 
 ```sh
