@@ -77,7 +77,8 @@ jobs:
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libpango1.0-dev clang llvm lld
           if ! command -v llvm-ar >/dev/null; then
-            sudo ln -sf "$(ls -d /usr/lib/llvm-*/bin/llvm-ar | sort -V | tail -1)" /usr/local/bin/llvm-ar
+            LLVM_AR="$(find /usr/lib -maxdepth 3 -path '*/llvm-*/bin/llvm-ar' | sort -V | tail -1)"
+            sudo ln -sf "$LLVM_AR" /usr/local/bin/llvm-ar
           fi
           echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar)" >> "$GITHUB_ENV"
           llvm-ar --version | head -1
