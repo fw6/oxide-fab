@@ -1,0 +1,40 @@
+README.md
+  s_f372dbf1e2cdb4::t_6b1df8b948dba0 284
+  s_f372dbf1e2cdb4::t_5adede0cee55fb 62-66
+crates/oxide-ui/Cargo.lock
+  s_f372dbf1e2cdb4::t_5ed616e74a0e2b 3236
+crates/oxide-ui/nsh.json
+  s_f372dbf1e2cdb4::t_5d1497e1ff8aff 4-5
+crates/oxide-ui/Cargo.toml
+  s_f372dbf1e2cdb4::t_5d1497e1ff8aff 3
+Cargo.toml
+  s_f372dbf1e2cdb4::t_5d1497e1ff8aff 15
+crates/oxide-ui/tests/dashboard.rs
+  s_f372dbf1e2cdb4::t_89a8fa38094908 81-84,88
+  s_f372dbf1e2cdb4::t_5ae84094874296 75-80,85,98,102-104
+  s_f372dbf1e2cdb4::t_f4c3573ec63eea 136-138,149,154-166,168,180-194
+  s_f372dbf1e2cdb4::t_5cd722cb776b07 139-148,150-153,167,169-179,195-196
+Cargo.lock
+  s_f372dbf1e2cdb4::t_5ed616e74a0e2b 1016,1034,1044,1056,1075,1086
+docs/acceptance.md
+  s_f372dbf1e2cdb4::t_fa86d15ee3283f 1-2,5-59
+  s_f372dbf1e2cdb4::t_5d1497e1ff8aff 3-4
+CHANGELOG.md
+  s_f372dbf1e2cdb4::t_62d1b600372b4a 7-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "cd3ab7ed39da398bc2d8b2597d5b8aaeecf98f97",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
