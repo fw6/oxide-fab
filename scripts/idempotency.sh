@@ -25,7 +25,7 @@ if not chosen:
 print(chosen[-1]["event"]["event_id"])')
 echo "   redelivering event ${event_id}"
 
-for attempt in 1 2; do
+for _ in 1 2; do
   result=$(api_post "/admin/redeliver/${event_id}")
   echo "$result" | python3 -c '
 import json, sys

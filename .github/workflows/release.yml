@@ -94,6 +94,13 @@ jobs:
         with:
           workspaces: crates/oxide-ui
 
+      - name: Native libraries for the Linux backend (GTK 4, GStreamer, Pango)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libpango1.0-dev
+
       - name: Install nsh
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
@@ -105,7 +112,7 @@ jobs:
         run: |
           set -euo pipefail
           version="${GITHUB_REF_NAME#v}"
-          build="$(( ${GITHUB_RUN_NUMBER} ))"
+          build="$(( GITHUB_RUN_NUMBER ))"
           nsh package crates/oxide-ui --target web \
             --name "oxide-ui" --app-version "$version" --build "$build" \
             -o dist/web

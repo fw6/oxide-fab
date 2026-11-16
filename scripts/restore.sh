@@ -38,8 +38,6 @@ lots=$(echo "$snapshot" | json db.lots)
 events=$(echo "$snapshot" | json db.events)
 max_created=$(docker compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -tAc \
   "SELECT COALESCE(to_char(max(created_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), 'none') FROM lot")
-max_event=$(docker compose exec -T postgres psql -U "$DB_USER" -d "$DB_NAME" -tAc \
-  "SELECT COALESCE(to_char(max(occurred_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), 'none') FROM lot_event")
 main_greptime=$(api_get /api/stats | python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin)["greptime"]))')
 echo "   lots=${lots} events=${events} max(created_at)=${max_created}"
 
@@ -141,7 +139,6 @@ restored_greptime=$("${RESTORE_COMPOSE[@]}" exec -T greptimedb \
 echo "   isolated equipment_telemetry: ${restored_greptime}"
 
 greptime_tables=$(echo "$main_greptime" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)))')
-greptime_rows=$(echo "$main_greptime" | python3 -c 'import json,sys; print(sum(int(v) for v in json.load(sys.stdin).values()))')
 restored_rows=$(echo "$restored_greptime" | python3 -c '
 import json, sys
 body = json.load(sys.stdin)
