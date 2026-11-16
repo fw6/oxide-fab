@@ -88,7 +88,7 @@ pg_dump_file="pg-${TS}.dump"
 globals_file="pg-globals-${TS}.sql"
 docker compose exec -T postgres pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "$ARTIFACTS/$pg_dump_file"
 docker compose exec -T postgres pg_dumpall -U "$DB_USER" --globals-only > "$ARTIFACTS/$globals_file"
-ls -l "$ARTIFACTS/$pg_dump_file" "$ARTIFACTS/$globals_file" | sed 's/^/   /'
+du -h "$ARTIFACTS/$pg_dump_file" "$ARTIFACTS/$globals_file" | sed 's/^/   /'
 docker compose run --rm --entrypoint sh minio-init -c "
   set -e
   endpoint=http://minio:9000
