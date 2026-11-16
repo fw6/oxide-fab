@@ -4,6 +4,16 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.1] — 2026-11-17
+
+### Changed
+
+- The container image is published for **linux/amd64 and linux/arm64**. The
+  0.1.0 image was built for amd64 only, so `docker pull ghcr.io/fw6/oxide-fab`
+  failed on Apple Silicon with `no matching manifest for linux/arm64/v8`; the
+  Dockerfile already selected its musl target from `TARGETARCH`, the release
+  job just never asked for a second platform.
+
 ## [0.1.0] — 2026-11-16
 
 The first deliverable: a single-host, recoverable simulation of a four-step
