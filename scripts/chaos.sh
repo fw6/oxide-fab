@@ -72,6 +72,9 @@ scenario_kill_store() {
     return 1
   fi
   rto_ms=$(( $(now_ms) - stop_ms ))
+  # Stop the line so the backlog cannot grow between the check and the sample.
+  api_post /api/sim/pause >/dev/null
+  wait_pending_zero 60 || true
 
   after=$(api_get /api/snapshot)
   events_after=$(echo "$after" | json db.events)
@@ -137,7 +140,11 @@ scenario_kill_db() {
   wait_http /healthz 120 || { echo "FAIL: the API did not come back"; return 1; }
   rto_ms=$(( $(now_ms) - stop_ms ))
 
-  # The engine buffered its uncommitted batch; it must land now.
+  # The engine buffered its uncommitted batch; it must land now. Pause first so
+  # the measurement is not racing newly generated events.
+  api_post /api/sim/play >/dev/null
+  wait_snapshot 'd["db"]["events"] > 0' 60 || true
+  api_post /api/sim/pause >/dev/null
   wait_snapshot 'd["db"]["events"] >= d["db"]["published_events"] and d["db"]["outbox_pending"] == 0' 120 || true
   wait_pending_zero 120 || { echo "FAIL: the outbox did not catch up after PostgreSQL returned"; return 1; }
   after=$(api_get /api/snapshot)
@@ -245,4 +252,5 @@ if [ "$failures" -ne 0 ]; then
   echo "FAIL: ${failures} scenario(s) failed"
   exit 1
 fi
+api_post /api/sim/play >/dev/null || true
 echo "PASS: three chaos scenarios completed"
