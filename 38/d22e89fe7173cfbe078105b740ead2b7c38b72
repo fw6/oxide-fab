@@ -1,0 +1,50 @@
+scripts/backup.sh
+  s_f372dbf1e2cdb4::t_dfa30c35979549 22,92,94-96
+  s_f372dbf1e2cdb4::t_05fb90611ba9a2 2-4
+  s_f372dbf1e2cdb4::t_e485200e8c9908 14,20-21
+.env.example
+  s_f372dbf1e2cdb4::t_e485200e8c9908 8-13,20
+scripts/restore.sh
+  s_f372dbf1e2cdb4::t_e485200e8c9908 20,25-26
+  s_f372dbf1e2cdb4::t_dfa30c35979549 27
+docs/decisions/001-ui-toolchain.md
+  s_f372dbf1e2cdb4::t_96c46216f143f1 106-122
+docker-compose.yml
+  s_f372dbf1e2cdb4::t_81e1ce8aedf54e 3-6,9-13,63,65,106
+  s_f372dbf1e2cdb4::t_e485200e8c9908 158
+  s_f372dbf1e2cdb4::t_c2261c657fbacd 34-35,37-38,68,71,73-76,78,80,85,89,92-94,99-105,107,113,115,119,121,123-124,179
+  s_f372dbf1e2cdb4::t_efe3ef5514345b 69,86
+README.md
+  s_f372dbf1e2cdb4::t_2c67080fc13638 74-75,254-257,278
+  s_f372dbf1e2cdb4::t_568c61fc6cdb1b 151,153-155,157,179-181
+  s_f372dbf1e2cdb4::t_96c46216f143f1 44,48-54
+  s_f372dbf1e2cdb4::t_aafcb016774422 131,168
+docker-compose.restore.yml
+  s_f372dbf1e2cdb4::t_e485200e8c9908 7,26-27,29-30,53,55,57-58
+CHANGELOG.md
+  s_f372dbf1e2cdb4::t_2c67080fc13638 37-42
+docs/architecture.md
+  s_f372dbf1e2cdb4::t_2c67080fc13638 124-125
+Dockerfile.pg
+  s_f372dbf1e2cdb4::t_05fb90611ba9a2 2
+docs/chaos-report.md
+  s_f372dbf1e2cdb4::t_568c61fc6cdb1b 3,13,15,18,24,26-28,33-34,37-38,47-49
+docs/decisions/004-object-store.md
+  s_f372dbf1e2cdb4::t_304c3df397437e 1-69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "38d22e89fe7173cfbe078105b740ead2b7c38b72",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
