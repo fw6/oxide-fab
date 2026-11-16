@@ -1,0 +1,33 @@
+crates/oxide-ui/Cargo.toml
+  s_f372dbf1e2cdb4::t_c4fe7f7fd7016f 3
+Cargo.toml
+  s_f372dbf1e2cdb4::t_c4fe7f7fd7016f 15
+crates/oxide-ui/nsh.json
+  s_f372dbf1e2cdb4::t_c4fe7f7fd7016f 4-5
+Cargo.lock
+  s_f372dbf1e2cdb4::t_8b3ad2fb6c9990 1016,1034,1044,1056,1075,1086
+crates/oxide-ui/Cargo.lock
+  s_f372dbf1e2cdb4::t_8b3ad2fb6c9990 3236
+.github/workflows/release.yml
+  s_f372dbf1e2cdb4::t_fe0cb51ed00bdb 257-258
+  s_f372dbf1e2cdb4::t_85cf52967e4136 356
+  s_f372dbf1e2cdb4::t_1d8fb76192d01b 276-278,288-295,299-304
+CHANGELOG.md
+  s_f372dbf1e2cdb4::t_2dabf64ec2e538 7-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "2231ec9738ad197417ebb6bfd1c32016c0c7e3ca",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
