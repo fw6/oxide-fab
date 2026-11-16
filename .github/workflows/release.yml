@@ -129,14 +129,27 @@ jobs:
           mkdir -p artifacts
           nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml
           nsh build crates/oxide-ui --release -o "dist/tui"
+          # nsh 0.5.0 has no `package --target tui`. Ship the app description
+          # together with the sources the terminal host mounts, so the archive
+          # is runnable with an installed nsh.
+          mkdir -p dist/tui/app/src dist/tui/app/tests
+          cp crates/oxide-ui/{Cargo.toml,Cargo.lock,nsh.json,theme.json,App.test.tsx} dist/tui/app/
+          cp crates/oxide-ui/src/*.rs dist/tui/app/src/
+          cp crates/oxide-ui/tests/*.rs dist/tui/app/tests/
           cp README.md "dist/tui/README.md"
           cat > "dist/tui/RUNNING.txt" <<'TXT'
-          This directory is the oxide-ui app bundle for the terminal.
+          oxide-ui — the terminal dashboard.
 
-            nsh run --target tui .
+          nsh 0.5.0 has no `nsh package --target tui`; this archive carries the
+          app description (app.json) and the crate the terminal host mounts.
+          With nsh installed:
 
-          nsh 0.5.0 has no `nsh package --target tui`; this bundle plus the
-          installed nsh CLI is the TUI distribution. See the release notes.
+            cd app
+            nsh run --target tui
+
+          CI builds the terminal host and runs the UI in an in-memory terminal
+          (`nsh test crates/oxide-ui --target tui`); see the release notes for
+          the limits of this packaging.
           TXT
           tar -C dist -czf "dist/oxide-ui-${version}-tui.tar.gz" tui
           echo "TUI=dist/oxide-ui-${version}-tui.tar.gz" >> "$GITHUB_ENV"
