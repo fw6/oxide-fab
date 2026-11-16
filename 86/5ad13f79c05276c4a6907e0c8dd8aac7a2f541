@@ -1,0 +1,19 @@
+docs/decisions/004-object-store.md
+  s_f372dbf1e2cdb4::t_75b5d4f07eafc5 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "865ad13f79c05276c4a6907e0c8dd8aac7a2f541",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
