@@ -2,7 +2,7 @@
 
 - **Status:** accepted (forced substitution, documented)
 - **Date:** 2026-11-16
-- **Decision:** run **RustFS** (`rustfs/rustfs:v1.0.6`) as the S3-compatible
+- **Decision:** run **RustFS** (`rustfs/rustfs:1.0.6`) as the S3-compatible
   object store, keeping the bucket names `oxide-data` and `oxide-backup` and
   the S3 configuration of every client (GreptimeDB, pgBackRest, the export
   tooling).
