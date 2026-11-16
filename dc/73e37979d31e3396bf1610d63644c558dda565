@@ -1,0 +1,58 @@
+crates/oxide-core/src/model.rs
+  s_f372dbf1e2cdb4::t_52f0dcf9108911 140-145
+crates/oxide-core/src/scenario.rs
+  s_f372dbf1e2cdb4::t_52f0dcf9108911 77-78,82-95,100-105,136,142-154,186-200
+  s_f372dbf1e2cdb4::t_32a5bc0c0c74ec 169
+  s_f372dbf1e2cdb4::t_f9285a0d61ef17 96-99
+README.md
+  s_f372dbf1e2cdb4::t_32c6b1d94377d0 151,153-155,157,179-182
+  s_f372dbf1e2cdb4::t_8fbb3cbdc68350 174-175
+.github/workflows/release.yml
+  s_f372dbf1e2cdb4::t_010e5b38b8a353 249-251,253-256
+  s_f372dbf1e2cdb4::t_106900631046f3 259-263
+scripts/chaos.sh
+  s_f372dbf1e2cdb4::t_abcfa2b328bcdf 188,198,200,264,266
+  s_f372dbf1e2cdb4::t_ad3d0cc94edc1a 252-255,257,270
+  s_f372dbf1e2cdb4::t_026b326a78a1d4 184-185,187,189-197,199,201-202,206-209,216,219-220,222,227-232,234,237-250,256,258-263,265,267-268,271-280,283,300,329,355
+  s_f372dbf1e2cdb4::t_a35650ea7bf458 203,211-215,225,233,235-236,251,269
+  s_f372dbf1e2cdb4::t_876773f7484b51 204-205,210,217-218,221,223-224,226
+  s_f372dbf1e2cdb4::t_0f2a8d09e2d6aa 341
+  s_f372dbf1e2cdb4::t_57f9ddc7dee9cd 186
+crates/oxide-api/src/handlers.rs
+  s_f372dbf1e2cdb4::t_e4e98a6d9621f3 393-402,407-409
+config/scenario.json
+  s_f372dbf1e2cdb4::t_dc37f5527ea561 4-8,13-57,61-80,83-130
+crates/oxide-sim/src/lib.rs
+  s_f372dbf1e2cdb4::t_fe5d9700d000d8 1590-1591
+  s_f372dbf1e2cdb4::t_52f0dcf9108911 1076-1080
+crates/oxide-core/src/metrics.rs
+  s_f372dbf1e2cdb4::t_d4cc9f9931a21c 291
+docs/chaos-report.md
+  s_f372dbf1e2cdb4::t_8fbb3cbdc68350 31,33,39-42,44
+  s_f372dbf1e2cdb4::t_32c6b1d94377d0 3,13,15,18,24,26-28,34-38,43,47-48,57-60
+migrations/0003_route_step_qualification.sql
+  s_f372dbf1e2cdb4::t_52f0dcf9108911 1-4
+CHANGELOG.md
+  s_f372dbf1e2cdb4::t_f9285a0d61ef17 19-20,36-38
+crates/oxide-store/src/pg.rs
+  s_f372dbf1e2cdb4::t_52f0dcf9108911 127-129,132,140-143
+crates/oxide-secs/src/pair.rs
+  s_f372dbf1e2cdb4::t_f9285a0d61ef17 185-187
+  s_f372dbf1e2cdb4::t_e4e98a6d9621f3 180-184
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "dc73e37979d31e3396bf1610d63644c558dda565",
+  "prompts": {},
+  "sessions": {
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
