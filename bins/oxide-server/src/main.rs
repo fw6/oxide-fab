@@ -287,7 +287,11 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
                 .map(|sim| sim.persisted_events())
                 .unwrap_or(0);
             let every = state.scenario.snapshot_every_events.max(1);
-            if persisted.saturating_sub(last_snapshot_events) >= every {
+            // Modulo, not a running difference: `/admin/reset` restarts the
+            // counter, and a difference would then stay negative for a long
+            // time and never checkpoint. The equality guard avoids saving
+            // twice for the same count.
+            if persisted > 0 && persisted % every == 0 && persisted != last_snapshot_events {
                 save_snapshot(&state).await;
                 last_snapshot_events = persisted;
             }

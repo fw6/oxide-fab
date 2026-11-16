@@ -299,6 +299,11 @@ impl Simulation {
             }
         }
         if self.state.released_lots < self.scenario.lot_count {
+            // A snapshot that lagged the log must not make the next release
+            // happen in the past all at once.
+            if self.state.next_release_ms <= self.state.now_ms {
+                self.state.next_release_ms = self.state.now_ms + self.scenario.interarrival_ms;
+            }
             pending.push((self.state.next_release_ms, ScheduledKind::ReleaseLot));
         }
         for (at_ms, kind) in pending {
@@ -360,6 +365,16 @@ impl Simulation {
                         rework_count: 0,
                     })
                     .collect();
+                // A replay must also restore the release schedule, or the
+                // engine would re-release the lots it just rebuilt.
+                if let Some(serial) = event
+                    .lot_id
+                    .strip_prefix("LOT-")
+                    .and_then(|rest| rest.parse::<u64>().ok())
+                {
+                    self.state.next_lot_serial = self.state.next_lot_serial.max(serial + 1);
+                    self.state.released_lots = self.state.released_lots.max(serial as usize);
+                }
                 self.state
                     .lots
                     .entry(event.lot_id.clone())
@@ -1706,6 +1721,37 @@ mod tests {
             .equipment
             .values()
             .any(|r| r.equipment.state == EquipmentState::Idle));
+    }
+
+    #[test]
+    fn replaying_the_log_restores_the_release_schedule() {
+        let mut scenario = scenario();
+        scenario.lot_count = 3;
+        let mut sim = Simulation::new(scenario.clone()).unwrap();
+        let mut events = Vec::new();
+        for _ in 0..120 {
+            events.extend(sim.tick(100).events);
+        }
+        let released = sim.state.released_lots;
+        assert!(released >= 2, "several lots were released: {released}");
+
+        // Rebuild from the log alone (as a restart does when the snapshot is
+        // older than the events).
+        let mut fresh = Simulation::new(scenario).unwrap();
+        fresh.state.now_ms = sim.state.now_ms;
+        for event in &events {
+            fresh.apply_event(event);
+        }
+        assert_eq!(fresh.state.released_lots, released);
+        assert_eq!(fresh.state.next_lot_serial, sim.state.next_lot_serial);
+        fresh.rebuild_heap();
+        let lots = fresh.state.lots.len();
+        fresh.tick(100);
+        assert_eq!(
+            fresh.state.lots.len(),
+            lots,
+            "a replay must not release the same lots again"
+        );
     }
 
     #[test]

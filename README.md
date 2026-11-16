@@ -148,13 +148,13 @@ up    → 拉起 → 等 pg_is_in_recovery()=false → 校验
 
 ```json
 {
-  "target_time": "2026-11-16 15:44:36.236378+00",
+  "target_time": "2026-11-16 16:20:08.346439+00",
   "lots": 6,
-  "events": 94,
-  "max_created_at": "2026-11-16T15:44:32.223000Z",
-  "max_event_at": "2026-11-16T15:45:06.403000Z",
+  "events": 92,
+  "max_created_at": "2026-11-16T16:20:05.850000Z",
+  "max_event_at": "2026-11-16T16:20:34.780000Z",
   "greptime_rows": 24,
-  "elapsed_ms": 82277,
+  "elapsed_ms": 81870,
   "ok": true
 }
 ```
@@ -176,9 +176,9 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 
 | 场景 | 做了什么 | RPO（丢事件） | RTO（含重启） | 结论 |
 |---|---|---|---|---|
-| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.5 s** | 恢复后自动追平，Lot 状态不丢 |
-| kill-db | 停 PostgreSQL 10 s | **0** | **19.1 s** | API 全程返回 503，恢复后把内存里那一批提交 |
-| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.5 s** | 行数与 `max(created_at)` 与源库一致 |
+| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.6 s** | 恢复后自动追平，Lot 状态不丢 |
+| kill-db | 停 PostgreSQL 10 s | **0** | **19.0 s** | API 全程返回 503，恢复后把内存里那一批提交 |
+| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.1 s** | 行数与 `max(created_at)` 与源库一致 |
 
 > **这是单机重启式恢复，不是自动 failover。** RTO 包含容器重启、WAL 恢复、
 > 投递追平的时间；档 B 用 Patroni + etcd 才能谈自动切换。
