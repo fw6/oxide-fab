@@ -103,6 +103,23 @@ From `fonts.md` and `rust.md` (Theme): the app's font comes from the theme's
 `WenQuanYi Micro Hei, Noto Sans CJK SC, …` and every text inherits it. The TUI
 backend converts CJK characters to two Cells, which keeps the columns aligned.
 
+## Evidence produced by this repository
+
+| What | Command | Evidence |
+|---|---|---|
+| Rust + TSX UI tests (9 Rust tests, 1 TSX test) | `nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml` | `artifacts/nsh-tests.xml` |
+| Web target built and run in headless Chrome | `nsh test crates/oxide-ui --target web --junit artifacts/nsh-web-tests.xml` | `artifacts/nsh-web-tests.xml`, `artifacts/ui-web.log` |
+| Web dev server serves the app | `nsh run --target web --port 8123` → `GET /` returns 200 | `artifacts/ui-web-run.log` |
+| Web package (what the release ships) | `nsh package crates/oxide-ui --target web -o /tmp/oxide-web` | `artifacts/ui-web-package.log`, `docs/screenshots/dashboard-web.png` |
+| TUI target built and run in an in-memory terminal | `nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml` | `artifacts/nsh-tui-tests.xml`, `artifacts/ui-tui.log` |
+| TUI development host launches and connects | `nsh run --target tui` | `artifacts/ui-tui-host.log` |
+
+`nsh run --target tui` was started under a PTY; the host builds and its dev
+session connects, but this automation environment has no user-facing terminal,
+so the interactive screen itself was not captured. The TUI renderer is
+verified by the `--target tui` run above, which draws the same `App` through
+ratatui in an in-memory terminal and asserts the panel texts.
+
 ## Consequences
 
 - `crates/oxide-ui` is its own Cargo workspace (`[workspace]`), as the

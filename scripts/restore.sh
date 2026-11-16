@@ -17,14 +17,14 @@ PROJECT="oxide-restore"
 RESTORE_COMPOSE=(docker compose -p "$PROJECT" -f docker-compose.restore.yml)
 DB_USER="${POSTGRES_USER:-oxide}"
 DB_NAME="${POSTGRES_DB:-oxide}"
-BACKUP_BUCKET="${MINIO_BACKUP_BUCKET:-oxide-backup}"
+BACKUP_BUCKET="${S3_BACKUP_BUCKET:-oxide-backup}"
 S3_ARGS=(
   --s3
   --s3-bucket "${BACKUP_BUCKET}"
   --s3-region us-east-1
-  --s3-access-key-id "${MINIO_ROOT_USER:-oxide}"
-  --s3-secret-access-key "${MINIO_ROOT_PASSWORD:-oxide_demo_pw}"
-  --s3-endpoint http://minio:9000
+  --s3-access-key-id "${S3_ACCESS_KEY_ID:?run cp .env.example .env}"
+  --s3-secret-access-key "${S3_SECRET_ACCESS_KEY:?run cp .env.example .env}"
+  --s3-endpoint http://rustfs:9000
 )
 started_ms=$(now_ms)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# One backup: a pgBackRest full base backup with WAL archiving to the MinIO
-# `oxide-backup` bucket, logical dumps beside it, and a GreptimeDB
-# Export/Import V2 snapshot. Prints the inventory it wrote.
+# One backup: a pgBackRest full base backup with WAL archiving to the
+# S3-compatible object store's `oxide-backup` bucket, logical dumps beside it,
+# and a GreptimeDB Export/Import V2 snapshot. Prints the inventory it wrote.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -11,15 +11,15 @@ start_log backup
 
 DB_USER="${POSTGRES_USER:-oxide}"
 DB_NAME="${POSTGRES_DB:-oxide}"
-BACKUP_BUCKET="${MINIO_BACKUP_BUCKET:-oxide-backup}"
+BACKUP_BUCKET="${S3_BACKUP_BUCKET:-oxide-backup}"
 SNAPSHOT="s3://${BACKUP_BUCKET}/greptime/${TS}"
 S3_ARGS=(
   --s3
   --s3-bucket "${BACKUP_BUCKET}"
   --s3-region us-east-1
-  --s3-access-key-id "${MINIO_ROOT_USER:-oxide}"
-  --s3-secret-access-key "${MINIO_ROOT_PASSWORD:-oxide_demo_pw}"
-  --s3-endpoint http://minio:9000
+  --s3-access-key-id "${S3_ACCESS_KEY_ID:?run cp .env.example .env}"
+  --s3-secret-access-key "${S3_SECRET_ACCESS_KEY:?run cp .env.example .env}"
+  --s3-endpoint http://rustfs:9000
 )
 
 echo "-- PostgreSQL stanza"
@@ -89,11 +89,11 @@ globals_file="pg-globals-${TS}.sql"
 docker compose exec -T postgres pg_dump -U "$DB_USER" -Fc "$DB_NAME" > "$ARTIFACTS/$pg_dump_file"
 docker compose exec -T postgres pg_dumpall -U "$DB_USER" --globals-only > "$ARTIFACTS/$globals_file"
 ls -l "$ARTIFACTS/$pg_dump_file" "$ARTIFACTS/$globals_file" | sed 's/^/   /'
-docker compose run --rm --entrypoint sh minio-init -c "
+docker compose run --rm --entrypoint sh bucket-init -c "
   set -e
-  mc alias set local http://minio:9000 \"\$MINIO_ROOT_USER\" \"\$MINIO_ROOT_PASSWORD\" >/dev/null
-  mc cp /artifacts/${pg_dump_file} local/${BACKUP_BUCKET}/pg-logical/${TS}/ >/dev/null
-  mc cp /artifacts/${globals_file} local/${BACKUP_BUCKET}/pg-logical/${TS}/ >/dev/null
+  endpoint=http://rustfs:9000
+  aws --endpoint-url \"\$endpoint\" s3 cp /artifacts/${pg_dump_file} s3://${BACKUP_BUCKET}/pg-logical/${TS}/${pg_dump_file} >/dev/null
+  aws --endpoint-url \"\$endpoint\" s3 cp /artifacts/${globals_file} s3://${BACKUP_BUCKET}/pg-logical/${TS}/${globals_file} >/dev/null
   echo '   uploaded to s3://${BACKUP_BUCKET}/pg-logical/${TS}/'
 "
 

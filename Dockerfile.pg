@@ -1,5 +1,5 @@
 # PostgreSQL with pgBackRest, so the same cluster can archive WAL and take
-# full backups into the MinIO `oxide-backup` bucket.
+# full backups into the S3-compatible `oxide-backup` bucket.
 FROM postgres:16-bookworm
 
 RUN apt-get update \

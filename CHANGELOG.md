@@ -34,9 +34,12 @@ semiconductor line.
 - **UI**: `oxide-ui`, an nsh app in pure Rust mode for web and TUI.
 - **Ops**: `scripts/smoke.sh`, `replay.sh`, `idempotency.sh`, `backup.sh`,
   `restore.sh`, `chaos.sh` — all run against the compose stack.
-- **Backup**: pgBackRest full backups and WAL archiving to MinIO, logical
-  dumps, GreptimeDB Export/Import V2 snapshots, and a point-in-time restore
-  drill in an isolated compose project.
+- **Backup**: pgBackRest full backups and WAL archiving to the S3-compatible
+  object store, logical dumps, GreptimeDB Export/Import V2 snapshots, and a
+  point-in-time restore drill in an isolated compose project.
+- **Object store**: RustFS (S3 API) because MinIO's public images and binaries
+  are no longer distributable; bucket names `oxide-data` / `oxide-backup` are
+  unchanged (ADR 004).
 - **CI/CD**: `ci.yml` (fmt, clippy, tests, audit, `nsh test`, actionlint and a
   full integration run) and `release.yml` (three platforms, checksums, GHCR,
   nsh web package, release notes).

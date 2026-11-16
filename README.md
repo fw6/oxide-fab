@@ -41,8 +41,17 @@ docker compose up -d --wait
 
 ```sh
 cd crates/oxide-ui
-nsh run --target web     # 浏览器看板
+nsh run --target web     # 浏览器看板（约 90 秒首次构建后打印地址）
 nsh run --target tui     # 终端看板
+```
+
+UI 的测试与双目标验证：
+
+```sh
+nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml            # Rust + TSX
+nsh test crates/oxide-ui --target web  --junit artifacts/nsh-web.xml
+nsh test crates/oxide-ui --target tui  --junit artifacts/nsh-tui.xml
+nsh package crates/oxide-ui --target web -o dist/web                # release 产物
 ```
 
 看板默认连 `http://127.0.0.1:8080`；换地址设 `OXIDE_API_URL`。
@@ -62,8 +71,8 @@ flowchart LR
 
     PUB[outbox 投递者<br/>tokio task] -->|轮询 published_at IS NULL| PG
     PUB -->|HTTP SQL| GT[(GreptimeDB<br/>equipment_telemetry<br/>gem_event / spc_sample / e116_perf)]
-    GT -->|S3| MINIO[(MinIO<br/>oxide-data)]
-    PG -->|pgBackRest + 逻辑备份| MINIO2[(MinIO<br/>oxide-backup)]
+    GT -->|S3| S3[(对象存储<br/>oxide-data)]
+    PG -->|pgBackRest + 逻辑备份| S3B[(对象存储<br/>oxide-backup)]
 
     UI[oxide-ui<br/>nsh Rust] -->|snapshot / events?since| API
     GT -->|SPC 降采样| API
@@ -119,7 +128,7 @@ sequenceDiagram
 
 ## 备份、恢复与演练结果
 
-`scripts/backup.sh` 做四件事，全部落到 MinIO 的 `oxide-backup`：
+`scripts/backup.sh` 做四件事，全部落到对象存储的 `oxide-backup` bucket：
 
 1. `pgbackrest --type=full backup`（WAL 持续归档，`archive_timeout=300`）
 2. `pg_dump -Fc` + `pg_dumpall --globals-only`（表级恢复用）
@@ -139,13 +148,13 @@ up    → 拉起 → 等 pg_is_in_recovery()=false → 校验
 
 ```json
 {
-  "target_time": "2026-11-16 14:43:25.970024+00",
+  "target_time": "2026-11-16 15:19:29.157405+00",
   "lots": 6,
-  "events": 86,
-  "max_created_at": "2026-11-16T14:43:24.195000Z",
-  "max_event_at": "2026-11-16T14:43:50.635000Z",
+  "events": 94,
+  "max_created_at": "2026-11-16T15:19:27.044000Z",
+  "max_event_at": "2026-11-16T15:20:00.944000Z",
   "greptime_rows": 24,
-  "elapsed_ms": 82613,
+  "elapsed_ms": 82135,
   "ok": true
 }
 ```
@@ -156,7 +165,7 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 
 > **一个从未被恢复过的备份，在真正需要它的时刻只是一个假设。**
 >
-> 备份仓库不能和数据库同故障域。本演示用 MinIO 的独立 volume 承载备份，
+> 备份仓库不能和数据库同故障域。本演示用对象存储的独立 volume 承载备份，
 > 但仍是**演示级**：同一台机器、同一个 Docker；生产要把仓库放到独立的
 > 对象存储与账号下。
 
@@ -167,9 +176,9 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 
 | 场景 | 做了什么 | RPO（丢事件） | RTO（含重启） | 结论 |
 |---|---|---|---|---|
-| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **47.8 s** | 恢复后自动追平，Lot 状态不丢 |
-| kill-db | 停 PostgreSQL 10 s | **0** | **18.1 s** | API 全程返回 503，恢复后把内存里那一批提交 |
-| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.9 s** | 行数与 `max(created_at)` 与源库一致 |
+| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.6 s** | 恢复后自动追平，Lot 状态不丢 |
+| kill-db | 停 PostgreSQL 10 s | **0** | **18.9 s** | API 全程返回 503，恢复后把内存里那一批提交 |
+| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.4 s** | 行数与 `max(created_at)` 与源库一致 |
 
 > **这是单机重启式恢复，不是自动 failover。** RTO 包含容器重启、WAL 恢复、
 > 投递追平的时间；档 B 用 Patroni + etcd 才能谈自动切换。
@@ -242,7 +251,10 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 
 - 单机、单 PostgreSQL 主库；恢复是重启式，有停机窗口。
 - 机台、SECS/GEM 对端、载具都是仿真的；没有真实 EAP/MES 集成。
-- MinIO 与数据库在同一台机器上，备份仓库只是逻辑隔离（演示级）。
+- 对象存储与数据库在同一台机器上，备份仓库只是逻辑隔离（演示级）。
+- 对象存储用 RustFS 而非 MinIO：MinIO 的公开镜像与二进制已无法获取
+  （Docker Hub 401、dl.min.io 410，实测见 [ADR 004](docs/decisions/004-object-store.md)）。
+  S3 接口、bucket 名称与所有客户端不变。
 - 没有认证/授权，API 是内网演示形态。
 - `cargo audit` 忽略两条只涉及 sqlx 可选驱动（`sqlx-sqlite` / `sqlx-mysql`，未编译、未链接）的公告，
   原因写在 [`.cargo/audit.toml`](.cargo/audit.toml)；新增公告仍会让 CI 失败。
@@ -263,6 +275,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型
 - [ADR 003](docs/decisions/003-idempotency.md) — 幂等实现与实测
+- [ADR 004](docs/decisions/004-object-store.md) — 对象存储：RustFS 替代 MinIO 的实测原因
 - [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`artifacts/` 下每次运行都会重写）
 
 ## 许可证

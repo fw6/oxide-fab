@@ -1,11 +1,16 @@
 # oxide-fab: one compose file for the whole demo line.
 #
-#   postgres  — the single source of truth, with pgBackRest WAL archiving
-#   minio     — object store for GreptimeDB data and the backup repository
-#   greptimedb— the derived time series store, its data on MinIO
-#   oxide     — simulator, outbox projector, SECS/GEM pair and HTTP API
+#   postgres   — the single source of truth, with pgBackRest WAL archiving
+#   rustfs     — S3-compatible object store for GreptimeDB data and backups
+#   greptimedb — the derived time series store, its data on the object store
+#   oxide      — simulator, outbox projector, SECS/GEM pair and HTTP API
 #
 # Credentials come from .env (see .env.example); they are demo values.
+#
+# The object store is RustFS rather than MinIO because MinIO's public images
+# and binaries are no longer distributable (see
+# docs/decisions/004-object-store.md). The S3 API, the bucket names
+# (oxide-data, oxide-backup) and every client are unchanged.
 
 name: oxide-fab
 
@@ -26,11 +31,11 @@ services:
       PGBACKREST_PG1_USER: ${POSTGRES_USER:-oxide}
       PGBACKREST_PG1_DATABASE: ${POSTGRES_DB:-oxide}
       PGBACKREST_REPO1_TYPE: s3
-      PGBACKREST_REPO1_S3_BUCKET: ${MINIO_BACKUP_BUCKET:-oxide-backup}
-      PGBACKREST_REPO1_S3_ENDPOINT: http://minio:9000
+      PGBACKREST_REPO1_S3_BUCKET: ${S3_BACKUP_BUCKET:-oxide-backup}
+      PGBACKREST_REPO1_S3_ENDPOINT: http://rustfs:9000
       PGBACKREST_REPO1_S3_REGION: us-east-1
-      PGBACKREST_REPO1_S3_KEY: ${MINIO_ROOT_USER:-oxide}
-      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
+      PGBACKREST_REPO1_S3_KEY: ${S3_ACCESS_KEY_ID:?copy .env.example to .env first}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${S3_SECRET_ACCESS_KEY:?copy .env.example to .env first}
       PGBACKREST_REPO1_S3_URI_STYLE: path
       PGBACKREST_REPO1_RETENTION_FULL: 2
       PGBACKREST_COMPRESS_TYPE: lz4
@@ -55,64 +60,68 @@ services:
       timeout: 3s
       retries: 30
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
-      minio-init:
+      bucket-init:
         condition: service_completed_successfully
 
-  minio:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  rustfs:
+    image: rustfs/rustfs:v1.0.6
     restart: unless-stopped
-    command: server /data --console-address ":9001"
+    command: server /data
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY_ID:?copy .env.example to .env first}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_ACCESS_KEY:?copy .env.example to .env first}
+      RUSTFS_VOLUMES: /data
+      RUSTFS_CONSOLE_ENABLE: "true"
     volumes:
-      - miniodata:/data
+      - objectdata:/data
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 3s
       timeout: 3s
       retries: 30
 
-  minio-init:
-    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+  bucket-init:
+    image: amazon/aws-cli:2.40.3
     restart: "no"
-    volumes:
-      # Used by `scripts/backup.sh` to upload the logical dumps.
-      - ./artifacts:/artifacts
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?copy .env.example to .env first}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?copy .env.example to .env first}
+      AWS_DEFAULT_REGION: us-east-1
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         set -e
-        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
-        mc mb --ignore-existing local/${MINIO_DATA_BUCKET:-oxide-data}
-        mc mb --ignore-existing local/${MINIO_BACKUP_BUCKET:-oxide-backup}
+        endpoint="http://rustfs:9000"
+        for bucket in "${S3_DATA_BUCKET:-oxide-data}" "${S3_BACKUP_BUCKET:-oxide-backup}"; do
+          aws --endpoint-url "$$endpoint" s3 mb "s3://$$bucket" 2>/dev/null || true
+          aws --endpoint-url "$$endpoint" s3 ls "s3://$$bucket" >/dev/null
+        done
+        echo "buckets ready"
+    volumes:
+      # Used by `scripts/backup.sh` to upload the logical dumps.
+      - ./artifacts:/artifacts
 
   greptimedb:
     image: greptime/greptimedb:v1.3.1
     restart: unless-stopped
     depends_on:
-      minio:
+      rustfs:
         condition: service_healthy
-      minio-init:
+      bucket-init:
         condition: service_completed_successfully
-    # Configuration through the CLI's env prefix rather than a file, so the
-    # demo credentials stay in .env and are never committed.
     environment:
       GREPTIMEDB_STANDALONE__STORAGE__TYPE: S3
-      GREPTIMEDB_STANDALONE__STORAGE__BUCKET: ${MINIO_DATA_BUCKET:-oxide-data}
+      GREPTIMEDB_STANDALONE__STORAGE__BUCKET: ${S3_DATA_BUCKET:-oxide-data}
       GREPTIMEDB_STANDALONE__STORAGE__ROOT: /oxide
-      GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://minio:9000
+      GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://rustfs:9000
       GREPTIMEDB_STANDALONE__STORAGE__REGION: us-east-1
-      GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER:-oxide}
-      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
+      GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?copy .env.example to .env first}
+      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?copy .env.example to .env first}
       GREPTIMEDB_STANDALONE__STORAGE__ENABLE_VIRTUAL_HOST_STYLE: "false"
     command:
       - standalone
@@ -146,7 +155,7 @@ services:
         condition: service_healthy
       greptimedb:
         condition: service_healthy
-      minio-init:
+      bucket-init:
         condition: service_completed_successfully
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-oxide}:${POSTGRES_PASSWORD:?copy .env.example to .env first}@postgres:5432/${POSTGRES_DB:-oxide}
@@ -167,5 +176,5 @@ services:
 
 volumes:
   pgdata:
-  miniodata:
+  objectdata:
   greptimedata:

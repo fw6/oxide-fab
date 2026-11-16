@@ -121,7 +121,7 @@ the first bucket is filling.
 
 ## Deployment
 
-One compose file: `postgres` (pgBackRest, WAL archiving to MinIO), `minio`,
-`minio-init`, `greptimedb` (S3 backend) and `oxide`. A separate
+One compose file: `postgres` (pgBackRest, WAL archiving to the object store),
+`rustfs` (S3-compatible), `bucket-init`, `greptimedb` (S3 backend) and `oxide`. A separate
 `docker-compose.restore.yml` project restores into isolated volumes and its own
 S3 prefix (`/oxide-restore-verify`).
