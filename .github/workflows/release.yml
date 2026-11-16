@@ -191,12 +191,17 @@ jobs:
           cat > "dist/tui/RUNNING.txt" <<'TXT'
           oxide-ui — the terminal dashboard.
 
-          nsh 0.5.x has no `nsh package --target tui`; this archive carries the
-          app description (app.json) and the crate the terminal host mounts.
-          With nsh installed:
+          nsh 0.5.x has no `nsh package --target tui`, and `nsh build` bundles
+          nothing: it writes only `app.json` (the app identity). This archive
+          therefore carries that file plus the whole crate the terminal host
+          mounts, which is what `nsh run --target tui` needs. With nsh
+          installed and the GTK/GStreamer libraries present:
 
             cd app
             nsh run --target tui
+
+          The crate is self-contained (its Cargo.toml declares its own
+          workspace), so it builds from this directory.
 
           CI builds the terminal host and runs the UI in an in-memory terminal
           (`nsh test crates/oxide-ui --target tui`); see the release notes for
