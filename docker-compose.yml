@@ -18,7 +18,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-oxide}
       POSTGRES_USER: ${POSTGRES_USER:-oxide}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxide_demo_pw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
       # pgBackRest reads these as configuration.
       PGBACKREST_STANZA: oxide
       PGBACKREST_PG1_PATH: /var/lib/postgresql/data
@@ -30,7 +30,7 @@ services:
       PGBACKREST_REPO1_S3_ENDPOINT: http://minio:9000
       PGBACKREST_REPO1_S3_REGION: us-east-1
       PGBACKREST_REPO1_S3_KEY: ${MINIO_ROOT_USER:-oxide}
-      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
       PGBACKREST_REPO1_S3_URI_STYLE: path
       PGBACKREST_REPO1_RETENTION_FULL: 2
       PGBACKREST_COMPRESS_TYPE: lz4
@@ -66,7 +66,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
     volumes:
       - miniodata:/data
     healthcheck:
@@ -86,7 +86,7 @@ services:
         condition: service_healthy
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -112,7 +112,7 @@ services:
       GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://minio:9000
       GREPTIMEDB_STANDALONE__STORAGE__REGION: us-east-1
       GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER:-oxide}
-      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
       GREPTIMEDB_STANDALONE__STORAGE__ENABLE_VIRTUAL_HOST_STYLE: "false"
     command:
       - standalone
@@ -149,7 +149,7 @@ services:
       minio-init:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgres://${POSTGRES_USER:-oxide}:${POSTGRES_PASSWORD:-oxide_demo_pw}@postgres:5432/${POSTGRES_DB:-oxide}
+      DATABASE_URL: postgres://${POSTGRES_USER:-oxide}:${POSTGRES_PASSWORD:?copy .env.example to .env first}@postgres:5432/${POSTGRES_DB:-oxide}
       GREPTIME_URL: http://greptimedb:4000
       GREPTIME_DB: public
       OXIDE_HTTP_ADDR: 0.0.0.0:8080

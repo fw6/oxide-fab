@@ -16,7 +16,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-oxide}
       POSTGRES_USER: ${POSTGRES_USER:-oxide}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxide_demo_pw}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
       PGBACKREST_STANZA: oxide
       PGBACKREST_PG1_PATH: /var/lib/postgresql/data
       PGBACKREST_PG1_PORT: 5432
@@ -27,7 +27,7 @@ services:
       PGBACKREST_REPO1_S3_ENDPOINT: http://minio:9000
       PGBACKREST_REPO1_S3_REGION: us-east-1
       PGBACKREST_REPO1_S3_KEY: ${MINIO_ROOT_USER:-oxide}
-      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
       PGBACKREST_REPO1_S3_URI_STYLE: path
       PGBACKREST_START_FAST: "y"
     command:
@@ -55,7 +55,7 @@ services:
       GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://minio:9000
       GREPTIMEDB_STANDALONE__STORAGE__REGION: us-east-1
       GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER:-oxide}
-      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?copy .env.example to .env first}
       GREPTIMEDB_STANDALONE__STORAGE__ENABLE_VIRTUAL_HOST_STYLE: "false"
     command:
       - standalone
