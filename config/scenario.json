@@ -1,0 +1,37 @@
+{
+  "name": "oxide-fab 4-step demo line",
+  "seed": 20261116,
+  "product": { "id": "PRD-OXIDE-300", "name": "300mm logic wafer", "wafer_size_mm": 300 },
+  "route": {
+    "id": "RTE-LOGIC-4",
+    "name": "clean → litho → etch → metrology",
+    "steps": [
+      { "step_no": 1, "name": "clean", "equipment_kind": "clean", "recipe_id": "RCP-CLEAN", "duration_ms": 6000 },
+      { "step_no": 2, "name": "litho", "equipment_kind": "litho", "recipe_id": "RCP-LITHO", "duration_ms": 9000 },
+      { "step_no": 3, "name": "etch", "equipment_kind": "etch", "recipe_id": "RCP-ETCH", "duration_ms": 8000 },
+      { "step_no": 4, "name": "metrology", "equipment_kind": "metrology", "recipe_id": "RCP-METRO", "duration_ms": 5000, "target": 100.0, "ucl": 103.0, "lcl": 97.0 }
+    ]
+  },
+  "recipes": [
+    { "id": "RCP-CLEAN", "version": 3, "body": "CLEAN;SC-1;60C;300s" },
+    { "id": "RCP-LITHO", "version": 5, "body": "LITHO;PR-1200;90C;EXPOSE=42mj" },
+    { "id": "RCP-ETCH", "version": 2, "body": "ETCH;CF4/O2;150mTorr;DEPTH=120nm" },
+    { "id": "RCP-METRO", "version": 1, "body": "METRO;CD-SEM;TARGET=100nm" }
+  ],
+  "equipment": [
+    { "id": "CLN-01", "kind": "clean", "chamber": "C1", "qualification": ["RCP-CLEAN"] },
+    { "id": "CLN-02", "kind": "clean", "chamber": "C2", "qualification": ["RCP-CLEAN"] },
+    { "id": "LIT-01", "kind": "litho", "chamber": "SCANNER", "qualification": ["RCP-LITHO"] },
+    { "id": "LIT-02", "kind": "litho", "chamber": "SCANNER", "qualification": ["RCP-LITHO"] },
+    { "id": "ETC-01", "kind": "etch", "chamber": "E1", "qualification": ["RCP-ETCH"] },
+    { "id": "MET-01", "kind": "metrology", "chamber": "M1", "qualification": ["RCP-METRO"] }
+  ],
+  "lot_count": 6,
+  "wafers_per_lot": 10,
+  "interarrival_ms": 4000,
+  "tick_ms": 100,
+  "failure_probability": 0.06,
+  "repair_ms": 6000,
+  "snapshot_every_events": 20,
+  "speed": 10.0
+}

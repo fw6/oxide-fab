@@ -1,0 +1,37 @@
+{
+  "cssVars": {
+    "theme": {
+      "radius": "0.5rem",
+      "font-sans": "WenQuanYi Micro Hei, Noto Sans CJK SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif",
+      "font-mono": "JetBrains Mono, SF Mono, Menlo, WenQuanYi Micro Hei, monospace"
+    },
+    "light": {
+      "background": "#f6f7f9",
+      "foreground": "#101828",
+      "card": "#ffffff",
+      "card-foreground": "#101828",
+      "muted": "#eef1f5",
+      "muted-foreground": "#5b6472",
+      "border": "#d8dee8",
+      "primary": "#0f766e",
+      "primary-foreground": "#ffffff",
+      "chart-1": "#0f766e",
+      "chart-2": "#b45309",
+      "chart-3": "#1d4ed8"
+    },
+    "dark": {
+      "background": "#0b1016",
+      "foreground": "#e6edf5",
+      "card": "#121a24",
+      "card-foreground": "#e6edf5",
+      "muted": "#1a2432",
+      "muted-foreground": "#93a1b5",
+      "border": "#243040",
+      "primary": "#2dd4bf",
+      "primary-foreground": "#062b28",
+      "chart-1": "#2dd4bf",
+      "chart-2": "#fbbf24",
+      "chart-3": "#60a5fa"
+    }
+  }
+}

@@ -1,0 +1,31 @@
+[package]
+name = "oxide-server"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "oxide-fab server: wires the simulator, the event store, the outbox projector, SECS/GEM and the HTTP API."
+
+[[bin]]
+name = "oxide"
+path = "src/main.rs"
+
+[dependencies]
+oxide-api.workspace = true
+oxide-core.workspace = true
+oxide-secs.workspace = true
+oxide-sim.workspace = true
+oxide-store.workspace = true
+
+anyhow.workspace = true
+axum.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+
+[features]
+default = ["secs-gem"]
+secs-gem = ["oxide-secs/secs-gem"]

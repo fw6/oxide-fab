@@ -1,0 +1,22 @@
+[package]
+name = "oxide-secs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Simulated SECS/GEM host and equipment (SEMI E4/E5/E30/E37) on secs4rs: S1F1, S6F11, S5F1 and S7."
+
+[dependencies]
+oxide-core.workspace = true
+
+secs4rs = { git = "https://github.com/Asuka-00/secs4rs", rev = "b5a6e707e4214672417364278efc8c398d00e8a8" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[features]
+default = ["secs-gem"]
+# The GEM behaviours are the point of this crate; the feature exists so the
+# protocol layer can be compiled out for embedders that only need the types.
+secs-gem = []

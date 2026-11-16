@@ -1,0 +1,247 @@
+name: Release
+
+# A tag publishes only what CI has already verified: the workflow calls ci.yml
+# first, then builds the three platforms, the nsh packages, the checksums and
+# the container image.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+  packages: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  ci:
+    name: CI gate
+    uses: ./.github/workflows/ci.yml
+
+  binaries:
+    name: oxide-server ${{ matrix.target }}
+    needs: ci
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --locked --bin oxide
+
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          name="oxide-server-${version}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          cp target/release/oxide "dist/${name}/oxide"
+          cp README.md LICENSE "dist/${name}/"
+          tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+          echo "ASSET=dist/${name}.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          $name = "oxide-server-$version-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
+          Copy-Item target/release/oxide.exe "dist/$name/oxide.exe"
+          Copy-Item README.md, LICENSE "dist/$name/"
+          Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
+          Add-Content -Path $env:GITHUB_ENV -Value "ASSET=dist/$name.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxide-server-${{ matrix.target }}
+          path: ${{ env.ASSET }}
+          if-no-files-found: error
+
+  nsh-packages:
+    name: nsh packages (web, tui)
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/oxide-ui
+
+      - name: Install nsh
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          NSH_VERSION: v0.5.0
+
+      - name: Build the web package
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          build="$(( ${GITHUB_RUN_NUMBER} ))"
+          nsh package crates/oxide-ui --target web \
+            --name "oxide-ui" --app-version "$version" --build "$build" \
+            -o dist/web
+          tar -C dist/web -czf "dist/oxide-ui-${version}-web.tar.gz" .
+          echo "WEB=dist/oxide-ui-${version}-web.tar.gz" >> "$GITHUB_ENV"
+
+      - name: Build the TUI package
+        # nsh 0.5.0 has no `package --target tui`: the TUI is produced by
+        # `nsh build` (app.json + assets) and run with `nsh run --target tui`.
+        # The TUI host is built and exercised here before it is archived.
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          mkdir -p artifacts
+          nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml
+          nsh build crates/oxide-ui --release -o "dist/tui"
+          cp README.md "dist/tui/README.md"
+          cat > "dist/tui/RUNNING.txt" <<'TXT'
+          This directory is the oxide-ui app bundle for the terminal.
+
+            nsh run --target tui .
+
+          nsh 0.5.0 has no `nsh package --target tui`; this bundle plus the
+          installed nsh CLI is the TUI distribution. See the release notes.
+          TXT
+          tar -C dist -czf "dist/oxide-ui-${version}-tui.tar.gz" tui
+          echo "TUI=dist/oxide-ui-${version}-tui.tar.gz" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxide-ui-packages
+          path: |
+            dist/oxide-ui-*-web.tar.gz
+            dist/oxide-ui-*-tui.tar.gz
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nsh-tui-tests
+          path: artifacts/nsh-tui-tests.xml
+          if-no-files-found: warn
+
+  image:
+    name: container image (GHCR)
+    needs: [binaries, nsh-packages]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          docker build -f Dockerfile \
+            -t "ghcr.io/fw6/oxide-fab:${version}" \
+            -t "ghcr.io/fw6/oxide-fab:latest" .
+          docker push "ghcr.io/fw6/oxide-fab:${version}"
+          docker push "ghcr.io/fw6/oxide-fab:latest"
+
+  release:
+    name: publish
+    needs: [binaries, nsh-packages, image]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Download the CI evidence (chaos report)
+        uses: actions/download-artifact@v4
+        with:
+          name: oxide-evidence
+          path: artifacts
+
+      - name: Checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          rm -f SHA256SUMS.txt
+          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
+            -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Release notes
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          cat > NOTES.md <<EOF
+          oxide-fab ${version} — 氧化层
+
+          运行整个演示：
+
+              cp .env.example .env
+              docker compose up -d --wait
+              ./scripts/smoke.sh
+
+          校验下载的文件：
+
+              sha256sum -c SHA256SUMS.txt        # macOS: shasum -a 256 -c
+
+          镜像：\`ghcr.io/fw6/oxide-fab:${version}\` 与 \`:latest\`。
+
+          已知限制（请如实阅读）：
+
+          - 单机演示；「防宕机」是断链缓冲 + 重启重放，不是自动 failover。
+          - 机台与 SECS/GEM 对端是仿真的（simulated tool only），未接真实机台，
+            未通过任何 SEMI 认证。
+          - 开源版 GreptimeDB standalone：没有读副本、没有双活。
+          - nsh 0.5.0 的 \`nsh package\` 没有 \`tui\` 目标：TUI 产物是
+            \`nsh build\` 的应用包 + 已安装的 nsh（\`nsh run --target tui\`）。
+
+          变更记录见 CHANGELOG.md。
+          EOF
+          cat NOTES.md
+
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: NOTES.md
+          files: |
+            dist/oxide-server-*.tar.gz
+            dist/oxide-server-*.zip
+            dist/oxide-ui-*-web.tar.gz
+            dist/oxide-ui-*-tui.tar.gz
+            dist/SHA256SUMS.txt
+            artifacts/chaos-report.md
+          fail_on_unmatched_files: false

@@ -1,0 +1,15 @@
+# cargo-audit configuration.
+#
+# Cargo.lock records sqlx's optional drivers even though oxide's feature set
+# enables PostgreSQL only. `sqlx-mysql` and `sqlx-sqlite` are therefore in the
+# lockfile but are never compiled or linked into the binary; `cargo tree -i`
+# confirms nothing in the workspace depends on them.
+#
+# These two advisories are about those unused crates. Suppressing them here
+# (rather than in CI flags) keeps the reason next to the code, and any new
+# advisory still fails the build.
+[advisories]
+ignore = [
+    "RUSTSEC-2026-0459", # libsqlite3-sys (via sqlx-sqlite, not compiled)
+    "RUSTSEC-2023-0071", # rsa (via sqlx-mysql, not compiled)
+]

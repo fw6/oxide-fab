@@ -1,0 +1,159 @@
+name: CI
+
+# Runs on every push and pull request, and is reused by release.yml so a tag
+# cannot publish anything that this workflow has not verified.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  lint-and-test:
+    name: fmt, clippy, tests, audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test (no database needed)
+        run: cargo test --workspace
+
+      - name: cargo audit
+        run: |
+          cargo install cargo-audit --locked
+          cargo audit
+
+  ui:
+    name: nsh UI tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.99.1"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/oxide-ui
+
+      - name: Install nsh
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          NSH_VERSION: v0.5.0
+
+      - name: nsh version
+        run: nsh --version
+
+      - name: nsh check (cargo check for the crate)
+        run: nsh check crates/oxide-ui
+
+      - name: nsh test (headless UI tests, JUnit report)
+        run: |
+          mkdir -p artifacts
+          nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
+
+      - name: Upload the nsh test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nsh-tests
+          path: artifacts/nsh-tests.xml
+          if-no-files-found: warn
+
+  workflows:
+    name: actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+
+      - name: Lint both workflows
+        run: |
+          "$(go env GOPATH)/bin/actionlint" -color \
+            .github/workflows/ci.yml .github/workflows/release.yml
+
+  integration:
+    name: docker compose, smoke, chaos
+    needs: [lint-and-test, ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Demo credentials (not production)
+        run: cp .env.example .env
+
+      - name: Build and start the stack
+        run: docker compose up -d --wait
+
+      - name: Migrations (idempotent, safe to rerun)
+        run: docker compose exec -T oxide /oxide --migrate-only
+
+      - name: "Smoke: six lots, four steps, complete genealogy"
+        run: ./scripts/smoke.sh
+
+      - name: "Idempotency: the same event_id adds no point"
+        run: ./scripts/idempotency.sh
+
+      - name: "Replay: truncate GreptimeDB and rebuild it from PostgreSQL"
+        run: ./scripts/replay.sh
+
+      - name: "Backup: pgBackRest + logical dumps + Greptime snapshot"
+        run: ./scripts/backup.sh
+
+      - name: Restore drill in an isolated project
+        run: ./scripts/restore.sh
+
+      - name: "Chaos: store down, database down, restore drill"
+        run: ./scripts/chaos.sh
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Upload the chaos report and restore evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oxide-evidence
+          path: |
+            artifacts/chaos-report.md
+            artifacts/restore-latest.json
+            artifacts/backup-latest.json
+            artifacts/*.log
+          if-no-files-found: warn
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down -v

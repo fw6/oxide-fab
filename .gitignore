@@ -1,0 +1,13 @@
+# Rust
+/target
+**/target
+.cache
+
+# nsh generated state (runners, type declarations, TUI logs)
+**/.nsh
+
+# Generated evidence and local state
+artifacts/*
+!artifacts/.gitkeep
+.env
+.DS_Store

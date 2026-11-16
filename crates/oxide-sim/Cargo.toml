@@ -1,0 +1,14 @@
+[package]
+name = "oxide-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Discrete-event simulation engine for oxide-fab: tool buckets, step queues, dispatch rules, snapshots."
+
+[dependencies]
+oxide-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+uuid.workspace = true

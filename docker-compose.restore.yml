@@ -1,0 +1,84 @@
+# An isolated restore target. It never touches the running instance's
+# volumes: its own project prefix gives it fresh volumes, and its GreptimeDB
+# writes under `/oxide-restore-verify` so it cannot mingle with the live data.
+#
+#   docker compose -p oxide-restore -f docker-compose.restore.yml up -d --wait
+#
+# It joins the main project's network only to reach the MinIO backup repository.
+
+name: oxide-restore
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.pg
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oxide}
+      POSTGRES_USER: ${POSTGRES_USER:-oxide}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxide_demo_pw}
+      PGBACKREST_STANZA: oxide
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
+      PGBACKREST_PG1_PORT: 5432
+      PGBACKREST_PG1_USER: ${POSTGRES_USER:-oxide}
+      PGBACKREST_PG1_DATABASE: ${POSTGRES_DB:-oxide}
+      PGBACKREST_REPO1_TYPE: s3
+      PGBACKREST_REPO1_S3_BUCKET: ${MINIO_BACKUP_BUCKET:-oxide-backup}
+      PGBACKREST_REPO1_S3_ENDPOINT: http://minio:9000
+      PGBACKREST_REPO1_S3_REGION: us-east-1
+      PGBACKREST_REPO1_S3_KEY: ${MINIO_ROOT_USER:-oxide}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      PGBACKREST_REPO1_S3_URI_STYLE: path
+      PGBACKREST_START_FAST: "y"
+    command:
+      - postgres
+      - -c
+      - "wal_level=replica"
+      - -c
+      - "hot_standby=on"
+    volumes:
+      - restore_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxide} -d ${POSTGRES_DB:-oxide}"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    networks:
+      - default
+
+  greptimedb:
+    image: greptime/greptimedb:v1.3.1
+    environment:
+      GREPTIMEDB_STANDALONE__STORAGE__TYPE: S3
+      GREPTIMEDB_STANDALONE__STORAGE__BUCKET: ${MINIO_DATA_BUCKET:-oxide-data}
+      GREPTIMEDB_STANDALONE__STORAGE__ROOT: /oxide-restore-verify
+      GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://minio:9000
+      GREPTIMEDB_STANDALONE__STORAGE__REGION: us-east-1
+      GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER:-oxide}
+      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      GREPTIMEDB_STANDALONE__STORAGE__ENABLE_VIRTUAL_HOST_STYLE: "false"
+    command:
+      - standalone
+      - start
+      - --http-addr
+      - 0.0.0.0:4000
+      - --data-home
+      - /var/lib/greptime
+    volumes:
+      - restore_greptimedata:/var/lib/greptime
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+    networks:
+      - default
+
+volumes:
+  restore_pgdata:
+  restore_greptimedata:
+
+networks:
+  default:
+    name: oxide-fab_default
+    external: true

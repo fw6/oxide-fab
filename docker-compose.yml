@@ -1,0 +1,171 @@
+# oxide-fab: one compose file for the whole demo line.
+#
+#   postgres  — the single source of truth, with pgBackRest WAL archiving
+#   minio     — object store for GreptimeDB data and the backup repository
+#   greptimedb— the derived time series store, its data on MinIO
+#   oxide     — simulator, outbox projector, SECS/GEM pair and HTTP API
+#
+# Credentials come from .env (see .env.example); they are demo values.
+
+name: oxide-fab
+
+services:
+  postgres:
+    build:
+      context: .
+      dockerfile: Dockerfile.pg
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-oxide}
+      POSTGRES_USER: ${POSTGRES_USER:-oxide}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-oxide_demo_pw}
+      # pgBackRest reads these as configuration.
+      PGBACKREST_STANZA: oxide
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
+      PGBACKREST_PG1_PORT: 5432
+      PGBACKREST_PG1_USER: ${POSTGRES_USER:-oxide}
+      PGBACKREST_PG1_DATABASE: ${POSTGRES_DB:-oxide}
+      PGBACKREST_REPO1_TYPE: s3
+      PGBACKREST_REPO1_S3_BUCKET: ${MINIO_BACKUP_BUCKET:-oxide-backup}
+      PGBACKREST_REPO1_S3_ENDPOINT: http://minio:9000
+      PGBACKREST_REPO1_S3_REGION: us-east-1
+      PGBACKREST_REPO1_S3_KEY: ${MINIO_ROOT_USER:-oxide}
+      PGBACKREST_REPO1_S3_KEY_SECRET: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      PGBACKREST_REPO1_S3_URI_STYLE: path
+      PGBACKREST_REPO1_RETENTION_FULL: 2
+      PGBACKREST_COMPRESS_TYPE: lz4
+      PGBACKREST_START_FAST: "y"
+    command:
+      - postgres
+      - -c
+      - "wal_level=replica"
+      - -c
+      - "archive_mode=on"
+      - -c
+      - "archive_timeout=300"
+      - -c
+      - "max_wal_senders=3"
+      - -c
+      - "archive_command=pgbackrest --stanza=oxide archive-push %p"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxide} -d ${POSTGRES_DB:-oxide}"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: "no"
+    volumes:
+      # Used by `scripts/backup.sh` to upload the logical dumps.
+      - ./artifacts:/artifacts
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-oxide}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing local/${MINIO_DATA_BUCKET:-oxide-data}
+        mc mb --ignore-existing local/${MINIO_BACKUP_BUCKET:-oxide-backup}
+
+  greptimedb:
+    image: greptime/greptimedb:v1.3.1
+    restart: unless-stopped
+    depends_on:
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    # Configuration through the CLI's env prefix rather than a file, so the
+    # demo credentials stay in .env and are never committed.
+    environment:
+      GREPTIMEDB_STANDALONE__STORAGE__TYPE: S3
+      GREPTIMEDB_STANDALONE__STORAGE__BUCKET: ${MINIO_DATA_BUCKET:-oxide-data}
+      GREPTIMEDB_STANDALONE__STORAGE__ROOT: /oxide
+      GREPTIMEDB_STANDALONE__STORAGE__ENDPOINT: http://minio:9000
+      GREPTIMEDB_STANDALONE__STORAGE__REGION: us-east-1
+      GREPTIMEDB_STANDALONE__STORAGE__ACCESS_KEY_ID: ${MINIO_ROOT_USER:-oxide}
+      GREPTIMEDB_STANDALONE__STORAGE__SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-oxide_demo_pw}
+      GREPTIMEDB_STANDALONE__STORAGE__ENABLE_VIRTUAL_HOST_STYLE: "false"
+    command:
+      - standalone
+      - start
+      - --http-addr
+      - 0.0.0.0:4000
+      - --grpc-bind-addr
+      - 0.0.0.0:4001
+      - --mysql-addr
+      - 0.0.0.0:4002
+      - --postgres-addr
+      - 0.0.0.0:4003
+      - --data-home
+      - /var/lib/greptime
+    volumes:
+      - greptimedata:/var/lib/greptime
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:4000/health"]
+      interval: 3s
+      timeout: 3s
+      retries: 40
+      start_period: 5s
+
+  oxide:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      greptimedb:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-oxide}:${POSTGRES_PASSWORD:-oxide_demo_pw}@postgres:5432/${POSTGRES_DB:-oxide}
+      GREPTIME_URL: http://greptimedb:4000
+      GREPTIME_DB: public
+      OXIDE_HTTP_ADDR: 0.0.0.0:8080
+      SCENARIO_PATH: /app/config/scenario.json
+      SECS_BIND: 127.0.0.1:50010
+      RUST_LOG: ${RUST_LOG:-info,oxide=debug}
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  pgdata:
+  miniodata:
+  greptimedata:

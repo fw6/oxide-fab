@@ -1,0 +1,11 @@
+target
+**/target
+.git
+.gitignore
+artifacts
+docs
+crates/oxide-ui
+node_modules
+**/.nsh
+*.log
+.env

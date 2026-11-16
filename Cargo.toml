@@ -1,0 +1,56 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oxide-core",
+    "crates/oxide-sim",
+    "crates/oxide-secs",
+    "crates/oxide-store",
+    "crates/oxide-api",
+    "bins/oxide-server",
+]
+# The nsh UI is its own Cargo workspace (nsh builds it with its own runners).
+exclude = ["crates/oxide-ui"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "Apache-2.0"
+repository = "https://github.com/fw6/oxide-fab"
+authors = ["oxide-fab contributors"]
+
+[workspace.dependencies]
+oxide-core = { path = "crates/oxide-core" }
+oxide-sim = { path = "crates/oxide-sim" }
+oxide-secs = { path = "crates/oxide-secs" }
+oxide-store = { path = "crates/oxide-store" }
+oxide-api = { path = "crates/oxide-api" }
+
+anyhow = "1"
+axum = "0.8"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio",
+    "tls-rustls-ring",
+    "postgres",
+    "uuid",
+    "chrono",
+    "json",
+    "migrate",
+] }
+thiserror = "2"
+tower-http = { version = "0.6", features = ["cors"] }
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
