@@ -4,6 +4,18 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] — 2026-11-17
+
+### Added
+
+- Headless UI tests for the control bar: pressing 暂停 / 单步 / − / + and, on a
+  paused line, 运行, is asserted through the stub network to POST
+  `/api/sim/pause`, `/step`, `/speed/5`, `/speed/20` and `/play`.
+- `docs/acceptance.md`: the twelve acceptance rows with the command, the result
+  and the evidence path, including the explicit nsh artefact mapping (web is an
+  `nsh package`; `tui` is `nsh build` + sources because no nsh release has a
+  `package --target tui`).
+
 ## [0.1.1] — 2026-11-17
 
 ### Changed

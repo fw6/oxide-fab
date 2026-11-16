@@ -59,6 +59,11 @@ nsh package crates/oxide-ui --target web -o dist/web                # release �
 
 看板默认连 `http://127.0.0.1:8080`；换地址设 `OXIDE_API_URL`。
 
+看板顶部的控制条——`暂停/运行`、`单步`、`−/+` 调速度——直接 POST 到
+`/api/sim/pause`、`/play`、`/step`、`/speed/<n>`，与脚本用的是同一组接口；
+`crates/oxide-ui/tests/dashboard.rs` 里的两条测试会在 stub 网络上断言这些请求
+确实发出（证据见 [docs/acceptance.md](docs/acceptance.md) §8 一节）。
+
 ## 架构
 
 ```mermaid
@@ -276,6 +281,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 ## 文档
 
 - [docs/architecture.md](docs/architecture.md) — 分层与模块依赖
+- [docs/acceptance.md](docs/acceptance.md) — 第 13 节 12 项验收的实测记录与证据路径
 - [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型
 - [ADR 003](docs/decisions/003-idempotency.md) — 幂等实现与实测

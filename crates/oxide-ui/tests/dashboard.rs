@@ -72,10 +72,20 @@ fn json(body: &str) -> StubResponse {
 }
 
 fn dashboard() -> Headless {
-    let network = StubNetwork::new([
+    dashboard_with_network().0
+}
+
+/// The same dashboard, plus the stub network, so a test can read what the app
+/// actually sent (`StubNetwork::requests`).
+fn dashboard_with_network() -> (Headless, Arc<StubNetwork>) {
+    dashboard_with_snapshot(SNAPSHOT)
+}
+
+fn dashboard_with_snapshot(snapshot: &str) -> (Headless, Arc<StubNetwork>) {
+    let network = Arc::new(StubNetwork::new([
         (
             "GET http://127.0.0.1:8080/api/snapshot".to_owned(),
-            json(SNAPSHOT),
+            json(snapshot),
         ),
         (
             "GET http://127.0.0.1:8080/api/events*".to_owned(),
@@ -85,12 +95,13 @@ fn dashboard() -> Headless {
             "GET http://127.0.0.1:8080/api/lots/LOT-0001".to_owned(),
             json(DETAIL),
         ),
-    ]);
+    ]));
     let mut config = EngineConfig::new(Root::of::<oxide_ui::App>());
     // A desktop window, so every panel is laid out and on screen.
     config.viewport = Size::new(px(1280.0), px(1600.0));
-    config.network = Some(Arc::new(network));
-    Headless::start(config).expect("the dashboard starts")
+    config.network = Some(network.clone());
+    let app = Headless::start(config).expect("the dashboard starts");
+    (app, network)
 }
 
 #[test]
@@ -120,6 +131,67 @@ fn pressing_a_lot_expands_its_wafers_and_genealogy() {
     app.press("text:W01").unwrap();
     app.wait_for("text:RCP-CLEAN").unwrap();
     app.wait_for("text:CLN-01").unwrap();
+}
+
+/// The control bar is the UI half of §8: the buttons POST to the same
+/// `/api/sim/*` endpoints the scripts use.
+fn posted_urls(app: &mut Headless, network: &StubNetwork, want: usize) -> Vec<String> {
+    use std::time::Duration;
+
+    let mut posted: Vec<String> = Vec::new();
+    for _ in 0..60 {
+        posted = network
+            .requests()
+            .iter()
+            .filter(|request| request.method == "POST")
+            .map(|request| request.url.clone())
+            .collect();
+        if posted.len() >= want {
+            break;
+        }
+        app.wait(Duration::from_millis(50)).unwrap();
+    }
+    posted
+}
+
+#[test]
+fn the_control_bar_pauses_steps_and_changes_the_speed() {
+    let (mut app, network) = dashboard_with_network();
+    // Wait for the first snapshot, which also carries `sim.running = true`.
+    app.wait_for("text:LOT-0001").unwrap();
+
+    app.press("text:暂停").unwrap();
+    app.press("text:单步").unwrap();
+    app.press("text:−").unwrap(); // ×10 -> 5
+    app.press("text:+").unwrap(); // ×10 -> 20
+
+    let posted = posted_urls(&mut app, &network, 4);
+    for expected in [
+        "/api/sim/pause",
+        "/api/sim/step",
+        "/api/sim/speed/5",
+        "/api/sim/speed/20",
+    ] {
+        assert!(
+            posted.iter().any(|url| url.ends_with(expected)),
+            "{expected} was not posted; the app sent {posted:?}"
+        );
+    }
+}
+
+#[test]
+fn the_same_button_plays_a_paused_line() {
+    let paused = SNAPSHOT.replace("\"running\":true", "\"running\":false");
+    let (mut app, network) = dashboard_with_snapshot(&paused);
+    app.wait_for("text:LOT-0001").unwrap();
+
+    app.press("text:运行").unwrap();
+
+    let posted = posted_urls(&mut app, &network, 1);
+    assert!(
+        posted.iter().any(|url| url.ends_with("/api/sim/play")),
+        "/api/sim/play was not posted; the app sent {posted:?}"
+    );
 }
 
 #[test]
