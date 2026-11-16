@@ -43,9 +43,17 @@ semiconductor line.
   `Dockerfile.minio` because MinIO's public images and binaries are no longer
   distributable; bucket names `oxide-data` / `oxide-backup` are unchanged
   (ADR 004).
-- **CI/CD**: `ci.yml` (fmt, clippy, tests, audit, `nsh test`, actionlint and a
-  full integration run) and `release.yml` (three platforms, checksums, GHCR,
-  nsh web package, release notes).
+- **CI/CD**: `ci.yml` (fmt, clippy, tests, audit, `nsh test`, the web package,
+  actionlint and a full integration run) and `release.yml` (three platforms,
+  checksums, GHCR, nsh web package, release notes).
+
+### Fixed
+
+- The release dry run (run 43925767572) failed to build the web package because
+  the job had no `wasm32-unknown-unknown` target and no `llvm-ar`, which
+  `nsh-platform-web` needs to compile zstd for wasm. CI now installs both and
+  builds the web package on every push, so the release cannot regress there
+  unnoticed.
 
 ### Known limits
 

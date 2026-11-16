@@ -132,6 +132,33 @@ What the release ships instead, and how the TUI is verified:
   renderer in an in-memory terminal (the CI-safe path documented in
   `testing-and-trace.md`), which is the TUI target being built and run.
 
+## What the web package needs from the toolchain
+
+`nsh package --target web` compiles `nsh-platform-web` for
+`wasm32-unknown-unknown`, and that runtime depends on `zstd`, whose C sources
+cc-rs compiles through `clang` and archives through **`llvm-ar`**. The release
+dry run of 2026-11-17 failed exactly there:
+
+```text
+$ nsh package crates/oxide-ui --target web ...        # run 43925767572
+error[E0463]: can't find crate for `core`
+  = note: the `wasm32-unknown-unknown` target may not be installed
+error: failed to run custom build command for `zstd-sys v2.1.3+zstd.1.5.7`
+  error occurred in cc-rs: failed to find tool "llvm-ar": No such file or directory
+```
+
+Both workflows therefore install `rustup target add wasm32-unknown-unknown`
+(via `dtolnay/rust-toolchain`'s `targets:`) plus `clang llvm lld`, and export
+`AR_wasm32_unknown_unknown` pointing at `llvm-ar`. `ci.yml` also builds the
+whole web package on every push, so a packaging regression fails CI instead of
+surfacing at tag time. Locally the same build needs LLVM on `PATH`:
+
+```bash
+PATH=/opt/homebrew/opt/llvm/bin:$PATH \
+AR_wasm32_unknown_unknown=/opt/homebrew/opt/llvm/bin/llvm-ar \
+  nsh package crates/oxide-ui --target web -o /tmp/oxide-web   # 6.7 MB, index.html
+```
+
 ## Evidence produced by this repository
 
 | What | Command | Evidence |

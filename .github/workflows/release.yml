@@ -121,17 +121,26 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
+          # The web package compiles the runtime for wasm.
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/oxide-ui
 
-      - name: Native libraries for the Linux backend (GTK 4, GStreamer, Pango)
+      - name: Native libraries (GTK 4, GStreamer, Pango) and the wasm C toolchain
+        # The web runtime compiles zstd for wasm32; cc-rs looks for llvm-ar.
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev
+            libpango1.0-dev clang llvm lld
+          if ! command -v llvm-ar >/dev/null; then
+            sudo ln -sf "$(ls -d /usr/lib/llvm-*/bin/llvm-ar | sort -V | tail -1)" /usr/local/bin/llvm-ar
+          fi
+          echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar)" >> "$GITHUB_ENV"
+          llvm-ar --version | head -1
 
       - name: Install nsh
         run: |

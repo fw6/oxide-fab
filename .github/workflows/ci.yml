@@ -57,17 +57,30 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.99.1"
+          # `nsh package --target web` compiles the runtime for wasm, and that
+          # package is an artefact the release ships: the gate below needs the
+          # target installed, exactly as the release job does.
+          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/oxide-ui
 
-      - name: Native libraries for the Linux backend (GTK 4, GStreamer, Pango)
+      - name: Native libraries (GTK 4, GStreamer, Pango) and the wasm C toolchain
+        # `nsh-platform-web` compiles zstd for wasm32, and cc-rs obtains the
+        # target's archiver from `llvm-ar`: without it the web package fails
+        # with "failed to find tool llvm-ar" (seen on run 43925767572).
         run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev
+            libpango1.0-dev clang llvm lld
+          if ! command -v llvm-ar >/dev/null; then
+            sudo ln -sf "$(ls -d /usr/lib/llvm-*/bin/llvm-ar | sort -V | tail -1)" /usr/local/bin/llvm-ar
+          fi
+          echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar)" >> "$GITHUB_ENV"
+          llvm-ar --version | head -1
 
       - name: Install nsh
         run: |
@@ -86,6 +99,16 @@ jobs:
         run: |
           mkdir -p artifacts
           nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
+
+      - name: nsh package (the web package the release ships)
+        run: |
+          set -euo pipefail
+          nsh package crates/oxide-ui --target web \
+            --name oxide-ui --app-version 0.0.0-ci --build "$GITHUB_RUN_NUMBER" \
+            -o dist/web
+          # nsh writes the package into a directory named after --name.
+          test -s dist/web/oxide-ui/index.html
+          du -sh dist/web/oxide-ui
 
       - name: Upload the nsh test report
         if: always()
