@@ -1,0 +1,35 @@
+scripts/window-shot.swift
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-42
+scripts/render-evidence.sh
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-35
+scripts/desktop-package.sh
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-56
+scripts/validate-assets.sh
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-9
+tools/assets/make_icon.py
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-111
+.gitignore
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 14-16
+assets/fab/fab-manifest.json
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-904
+tools/blender/build_fab.py
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-428
+scripts/linux-container-evidence.sh
+  s_7a68cbf16bb9fc::t_8f24e034ffbcf9 1-47
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "33a8a2235080074ca37a32b16646cb74cc6f4783",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
