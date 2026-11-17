@@ -1,0 +1,21 @@
+crates/oxide-api/src/handlers.rs
+  s_7a68cbf16bb9fc::t_f3832364196519 24-27,116-117,122-327
+Cargo.lock
+  s_7a68cbf16bb9fc::t_ea12ce4e95aca0 1537,1542
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "85621916a94dbc4764bbc38971be53510f37b825",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": null
+    }
+  }
+}
