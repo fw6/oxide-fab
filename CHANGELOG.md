@@ -4,6 +4,36 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- The workspace enables the Pragmatic Rust Guidelines' recommended lint set
+  (all clippy groups plus the rust lints) and CI enforces it with
+  `-D warnings`; `docs/rust-guidelines-review.md` records the review, the
+  opt-outs and the one remaining structural item (typed event payloads).
+- `GET /api/snapshot` no longer repeats the floor: `steps`, `equipment` and
+  `lots` live only under `sim`. The dashboard reads them from there.
+- A lot the operator names that does not exist is now **404**, not 400; an
+  illegal transition is still 400.
+
+### Fixed
+
+- An unknown `lot_event.kind` (or `lot`/`wafer` state) is an error instead of
+  being silently read as `lot_created` / `created`, which would have been
+  projected and replayed as truth.
+- `POST /api/lots/{id}/merge` is all-or-nothing: an unknown source id no longer
+  strands the lots that were already taken out of the simulator.
+- A SECS message whose text the encoder refuses now reports an error instead of
+  panicking the equipment thread.
+- A GreptimeDB query failure is reported as such, not as "no samples".
+- A lot whose life has ended (`completed`, `split`, `merged`) refuses every
+  process action with `already completed`; before, a split lot could be
+  reworked and a completed lot could take another track-in, silently reviving
+  it. The whole lifecycle is now pinned by an exhaustive 8 × 11 matrix test.
+- `complete` refuses a lot that still has material on a tool (`processing`), so
+  the tool's track-out cannot arrive after the lot was declared finished.
+
 ## [0.1.2] — 2026-11-17
 
 ### Added

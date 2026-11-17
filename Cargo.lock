@@ -1074,6 +1074,7 @@ dependencies = [
  "oxide-core",
  "serde",
  "serde_json",
+ "thiserror",
  "tracing",
  "uuid",
 ]

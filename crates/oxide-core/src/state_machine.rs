@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::events::{
-    DomainEvent, EventKind, equipment_down_payload, equipment_up_payload, lot_created_payload,
-    lot_queued_payload, merged_payload, split_payload, track_in_payload, track_out_payload,
+    DomainEvent, EventKind, TrackInReport, TrackOutReport, equipment_down_payload,
+    equipment_up_payload, lot_created_payload, lot_queued_payload, merged_payload, split_payload,
+    track_in_payload, track_out_payload,
 };
 use crate::model::{Lot, LotId, LotState, Wafer, WaferId, WaferState};
 
@@ -27,12 +28,16 @@ pub struct EventIds {
 }
 
 impl EventIds {
+    #[must_use]
     pub fn new(base: Uuid) -> Self {
         Self { base, offset: 0 }
     }
 
-    #[allow(clippy::should_implement_trait)]
-    pub fn next(&mut self) -> Uuid {
+    /// The next id of this set.
+    ///
+    /// Named `next_id`, not `next`: the id stream never ends, so it is not an
+    /// `Iterator`.
+    pub fn next_id(&mut self) -> Uuid {
         let id = Uuid::from_u128(self.base.as_u128().wrapping_add(self.offset as u128));
         self.offset += 1;
         id
@@ -40,6 +45,7 @@ impl EventIds {
 
     /// How many ids this set handed out, so the caller can advance its counter
     /// past them (ids stay unique across a restart).
+    #[must_use]
     pub fn used(&self) -> u32 {
         self.offset
     }
@@ -60,6 +66,8 @@ pub enum TransitionError {
     EmptyWaferSet,
     HoldWithoutReason,
     NotOnHold,
+    /// The lot's life has ended: it is completed, split or merged
+    /// ([`LotState::is_terminal`]).
     AlreadyCompleted,
     DifferentRoute {
         other: String,
@@ -122,6 +130,7 @@ pub struct Transition {
 }
 
 impl Transition {
+    #[must_use]
     pub fn events(&self) -> &[DomainEvent] {
         &self.events
     }
@@ -140,6 +149,7 @@ pub struct LotAggregate {
 }
 
 impl LotAggregate {
+    #[must_use]
     pub fn new(lot: Lot, wafers: Vec<Wafer>) -> Self {
         Self {
             lot,
@@ -150,6 +160,7 @@ impl LotAggregate {
     }
 
     /// The highest step every active wafer has finished, if any.
+    #[must_use]
     pub fn last_completed_step(&self) -> i32 {
         self.completed.keys().copied().max().unwrap_or(0)
     }
@@ -179,7 +190,7 @@ impl LotAggregate {
             })
             .collect();
         let event = DomainEvent::new(
-            ids.next(),
+            ids.next_id(),
             lot.id.clone(),
             EventKind::LotCreated,
             lot_created_payload(
@@ -204,6 +215,7 @@ impl LotAggregate {
             .filter(|w| w.state != WaferState::Scrapped)
     }
 
+    #[must_use]
     pub fn active_count(&self) -> usize {
         self.active_wafers().count()
     }
@@ -222,10 +234,7 @@ impl LotAggregate {
                 action: "queue",
             });
         }
-        if matches!(
-            self.lot.state,
-            LotState::Completed | LotState::Split | LotState::Merged
-        ) {
+        if self.lot.state.is_terminal() {
             return Err(TransitionError::AlreadyCompleted);
         }
         let busy = self
@@ -246,7 +255,7 @@ impl LotAggregate {
         }
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::LotQueued,
                 lot_queued_payload(step_no),
@@ -268,7 +277,7 @@ impl LotAggregate {
         if reason.trim().is_empty() {
             return Err(TransitionError::HoldWithoutReason);
         }
-        if self.lot.state == LotState::Completed {
+        if self.lot.state.is_terminal() {
             return Err(TransitionError::AlreadyCompleted);
         }
         if self.lot.state == LotState::OnHold {
@@ -278,7 +287,7 @@ impl LotAggregate {
         self.lot.hold_reason = Some(reason.to_owned());
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::LotHeld,
                 json!({ "reason": reason, "step_no": self.lot.current_step }),
@@ -308,7 +317,7 @@ impl LotAggregate {
         }
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::LotReleased,
                 json!({ "step_no": self.lot.current_step, "reason": reason }),
@@ -328,15 +337,14 @@ impl LotAggregate {
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
-        match self.lot.state {
-            LotState::Processing => {
-                return Err(TransitionError::IllegalState {
-                    from: self.lot.state,
-                    action: "rework",
-                });
-            }
-            LotState::Completed => return Err(TransitionError::AlreadyCompleted),
-            _ => {}
+        if self.lot.state == LotState::Processing {
+            return Err(TransitionError::IllegalState {
+                from: self.lot.state,
+                action: "rework",
+            });
+        }
+        if self.lot.state.is_terminal() {
+            return Err(TransitionError::AlreadyCompleted);
         }
         if to_step <= 0 || to_step >= self.lot.current_step {
             return Err(TransitionError::ReworkTargetNotEarlier {
@@ -357,7 +365,7 @@ impl LotAggregate {
         self.lot.current_step = to_step;
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::ReworkStarted,
                 json!({ "from_step": from_step, "to_step": to_step, "reason": reason }),
@@ -370,17 +378,22 @@ impl LotAggregate {
 
     /// Load `wafers` of this lot on a tool. A subset is legal: that is how a
     /// partial lot is processed while its siblings wait.
-    #[allow(clippy::too_many_arguments)]
     pub fn track_in(
         &mut self,
-        step_no: i32,
-        equipment_id: &str,
-        recipe_id: &str,
-        wafers: &[WaferId],
+        report: TrackInReport<'_>,
         ids: &mut EventIds,
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
+        let TrackInReport {
+            step_no,
+            recipe_id,
+            wafers,
+            ..
+        } = report;
+        if self.lot.state.is_terminal() {
+            return Err(TransitionError::AlreadyCompleted);
+        }
         if self.lot.state == LotState::OnHold {
             return Err(TransitionError::IllegalState {
                 from: self.lot.state,
@@ -405,10 +418,10 @@ impl LotAggregate {
         self.lot.state = LotState::Processing;
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::TrackIn,
-                track_in_payload(step_no, equipment_id, recipe_id, wafers),
+                track_in_payload(&report),
                 now_ms,
                 actor,
             )],
@@ -421,20 +434,23 @@ impl LotAggregate {
     /// A repeated submission for wafers that already finished this step is
     /// idempotent: it records an audit event and changes nothing. Tools retry;
     /// the state machine must not advance material twice.
-    #[allow(clippy::too_many_arguments)]
     pub fn track_out(
         &mut self,
-        step_no: i32,
-        equipment_id: &str,
-        recipe_id: &str,
-        recipe_checksum: &str,
-        wafers: &[WaferId],
-        duration_ms: i64,
-        measured: Option<f64>,
+        report: TrackOutReport<'_>,
         ids: &mut EventIds,
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
+        let TrackOutReport {
+            step_no,
+            recipe_id,
+            recipe_checksum,
+            wafers,
+            ..
+        } = report;
+        if self.lot.state.is_terminal() {
+            return Err(TransitionError::AlreadyCompleted);
+        }
         if self.lot.current_step != step_no {
             return Err(TransitionError::StepMismatch {
                 expected: self.lot.current_step,
@@ -452,18 +468,17 @@ impl LotAggregate {
         let already: HashSet<&WaferId> = self
             .completed
             .get(&step_no)
-            .map(|done| done.iter().collect())
-            .unwrap_or_default();
+            .map_or_default(|done| done.iter().collect());
 
         if selected.iter().all(|id| already.contains(id)) {
             return Ok(Transition {
                 events: vec![DomainEvent::new(
-                    ids.next(),
+                    ids.next_id(),
                     self.lot.id.clone(),
                     EventKind::TrackOutDuplicate,
                     json!({
                         "step_no": step_no,
-                        "equipment_id": equipment_id,
+                        "equipment_id": report.equipment_id,
                         "wafers": wafers,
                         "idempotent": true,
                     }),
@@ -497,18 +512,10 @@ impl LotAggregate {
         };
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::TrackOut,
-                track_out_payload(
-                    step_no,
-                    equipment_id,
-                    recipe_id,
-                    recipe_checksum,
-                    wafers,
-                    duration_ms,
-                    measured,
-                ),
+                track_out_payload(&report),
                 now_ms,
                 actor,
             )],
@@ -517,6 +524,7 @@ impl LotAggregate {
     }
 
     /// `true` when every active wafer finished `step_no`.
+    #[must_use]
     pub fn step_finished(&self, step_no: i32) -> bool {
         let Some(done) = self.completed.get(&step_no) else {
             return false;
@@ -532,8 +540,16 @@ impl LotAggregate {
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
-        if self.lot.state == LotState::Completed {
+        if self.lot.state.is_terminal() {
             return Err(TransitionError::AlreadyCompleted);
+        }
+        // Material is on a tool: its track-out would arrive after the lot was
+        // declared finished, and the tool's report would then be refused.
+        if self.lot.state == LotState::Processing {
+            return Err(TransitionError::IllegalState {
+                from: self.lot.state,
+                action: "complete",
+            });
         }
         for wafer in &mut self.wafers {
             if wafer.state != WaferState::Scrapped {
@@ -543,7 +559,7 @@ impl LotAggregate {
         self.lot.state = LotState::Completed;
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::LotCompleted,
                 json!({ "step_no": step_no }),
@@ -583,7 +599,7 @@ impl LotAggregate {
         }
         Ok(Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::WaferScrapped,
                 json!({ "wafer_id": wafer_id, "reason": reason, "step_no": self.lot.current_step }),
@@ -608,7 +624,7 @@ impl LotAggregate {
             .insert(recipe_id.to_owned(), checksum.to_owned());
         Transition {
             events: vec![DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::RecipeVerified,
                 json!({ "recipe_id": recipe_id, "checksum": checksum }),
@@ -631,10 +647,7 @@ impl LotAggregate {
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
-        if matches!(
-            self.lot.state,
-            LotState::Completed | LotState::Processing | LotState::Split | LotState::Merged
-        ) {
+        if self.lot.state.is_terminal() || self.lot.state == LotState::Processing {
             return Err(TransitionError::IllegalState {
                 from: self.lot.state,
                 action: "split",
@@ -660,7 +673,7 @@ impl LotAggregate {
         let mut described: Vec<(String, Vec<WaferId>)> = Vec::new();
         for (child_id, mut wafers) in child_ids.iter().cloned().zip(buckets) {
             for (slot, wafer) in wafers.iter_mut().enumerate() {
-                wafer.lot_id = child_id.clone();
+                wafer.lot_id.clone_from(&child_id);
                 wafer.slot = slot as i32 + 1;
                 wafer.state = match self.lot.state {
                     LotState::Queued => WaferState::Queued,
@@ -668,7 +681,7 @@ impl LotAggregate {
                 };
             }
             let mut child_lot = self.lot.clone();
-            child_lot.id = child_id.clone();
+            child_lot.id.clone_from(&child_id);
             child_lot.parent_lot_id = Some(self.lot.id.clone());
             child_lot.wafer_count = wafers.len() as i32;
             child_lot.state = match self.lot.state {
@@ -687,7 +700,7 @@ impl LotAggregate {
             });
         }
         let event = DomainEvent::new(
-            ids.next(),
+            ids.next_id(),
             self.lot.id.clone(),
             EventKind::LotSplit,
             split_payload(&self.lot.id, &described, self.lot.current_step),
@@ -715,7 +728,7 @@ impl LotAggregate {
         if sources.is_empty() {
             return Err(TransitionError::EmptyWaferSet);
         }
-        if matches!(self.lot.state, LotState::Processing | LotState::Completed) {
+        if self.lot.state.is_terminal() || self.lot.state == LotState::Processing {
             return Err(TransitionError::IllegalState {
                 from: self.lot.state,
                 action: "merge",
@@ -732,7 +745,7 @@ impl LotAggregate {
                     other: source.lot.current_step,
                 });
             }
-            if source.lot.state == LotState::Processing {
+            if source.lot.state.is_terminal() || source.lot.state == LotState::Processing {
                 return Err(TransitionError::IllegalState {
                     from: source.lot.state,
                     action: "merge",
@@ -748,11 +761,11 @@ impl LotAggregate {
                 .filter(|w| w.state != WaferState::Scrapped)
                 .map(|w| w.id.clone())
                 .collect();
-            for wafer in source.wafers.iter_mut() {
+            for wafer in &mut source.wafers {
                 if wafer.state == WaferState::Scrapped {
                     continue;
                 }
-                wafer.lot_id = self.lot.id.clone();
+                wafer.lot_id.clone_from(&self.lot.id);
                 wafer.slot = next_slot;
                 wafer.state = WaferState::Waiting;
                 next_slot += 1;
@@ -761,7 +774,7 @@ impl LotAggregate {
             source.lot.state = LotState::Merged;
             source.lot.wafer_count = 0;
             events.push(DomainEvent::new(
-                ids.next(),
+                ids.next_id(),
                 source.lot.id.clone(),
                 EventKind::LotMerged,
                 merged_payload(
@@ -802,6 +815,7 @@ impl LotAggregate {
 }
 
 /// Equipment transitions are small enough to live beside the lot machine.
+#[must_use]
 pub fn equipment_down(
     equipment_id: &str,
     kind: &str,
@@ -821,6 +835,7 @@ pub fn equipment_down(
     )
 }
 
+#[must_use]
 pub fn equipment_up(
     equipment_id: &str,
     kind: &str,
@@ -882,6 +897,230 @@ mod tests {
         aggregate.wafers.iter().map(|w| w.id.clone()).collect()
     }
 
+    /// Load `wafers` on `equipment` at the lot's current step.
+    fn track_in(
+        lot: &mut LotAggregate,
+        equipment: &str,
+        wafers: &[WaferId],
+        now_ms: i64,
+    ) -> Result<Transition, TransitionError> {
+        lot.track_in(
+            TrackInReport {
+                step_no: lot.lot.current_step,
+                equipment_id: equipment,
+                recipe_id: "RCP-CLEAN",
+                wafers,
+            },
+            &mut ids(),
+            now_ms,
+            "sim",
+        )
+    }
+
+    /// Finish the lot's current step on `equipment`.
+    fn track_out(
+        lot: &mut LotAggregate,
+        equipment: &str,
+        wafers: &[WaferId],
+        now_ms: i64,
+    ) -> Result<Transition, TransitionError> {
+        lot.track_out(
+            TrackOutReport {
+                step_no: lot.lot.current_step,
+                equipment_id: equipment,
+                recipe_id: "RCP-CLEAN",
+                recipe_checksum: &checksum(),
+                wafers,
+                duration_ms: 6000,
+                measured: None,
+            },
+            &mut ids(),
+            now_ms,
+            "sim",
+        )
+    }
+
+    // ------------------------------------------------------------------
+    // the lifecycle contract
+    // ------------------------------------------------------------------
+
+    /// What a `(state, action)` pair did.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    enum Outcome {
+        /// The aggregate changed.
+        Accepted,
+        /// Accepted, but nothing about the lot or its wafers changed: a retry.
+        Idempotent,
+        /// Refused for a lifecycle reason: this state does not allow it.
+        Refused,
+    }
+
+    /// Every action a tool or an operator can ask the aggregate to perform.
+    #[derive(Debug, Clone, Copy)]
+    enum Action {
+        Queue,
+        Hold,
+        Release,
+        Rework,
+        TrackIn,
+        TrackOut,
+        Complete,
+        ScrapWafer,
+        VerifyRecipe,
+        Split,
+        Merge,
+    }
+
+    const STATES: [LotState; 8] = [
+        LotState::Created,
+        LotState::Queued,
+        LotState::Processing,
+        LotState::Waiting,
+        LotState::OnHold,
+        LotState::Completed,
+        LotState::Split,
+        LotState::Merged,
+    ];
+
+    /// The column `state` occupies in every row of [`LIFECYCLE`].
+    ///
+    /// A new `LotState` fails to compile here; that is the point, because the
+    /// matrix must not silently gain a state nobody classified.
+    const fn column(state: LotState) -> usize {
+        match state {
+            LotState::Created => 0,
+            LotState::Queued => 1,
+            LotState::Processing => 2,
+            LotState::Waiting => 3,
+            LotState::OnHold => 4,
+            LotState::Completed => 5,
+            LotState::Split => 6,
+            LotState::Merged => 7,
+        }
+    }
+
+    use Outcome::{Accepted as A, Idempotent as I, Refused as R};
+
+    /// The lot lifecycle: one row per action, one cell per `STATES` column.
+    ///
+    /// `A` accepted (the aggregate changed), `I` accepted with no change (a
+    /// retry), `R` refused for a lifecycle reason. A new `Action` fails to
+    /// compile in [`observe`], so no action can go unclassified either.
+    ///
+    /// The aggregate under test is synthetic — four queued wafers, a verified
+    /// recipe, the same current step — so a difference between two cells can
+    /// only come from the lot's state. A few cells (a split lot that still has
+    /// wafers) are unreachable in a running fab; they pin the guard, not a
+    /// scenario. `scrap_wafer` and `verify_recipe` are lifecycle-independent on
+    /// purpose: a quality disposition and a download record do not move a lot.
+    #[rustfmt::skip]
+    const LIFECYCLE: [(Action, [Outcome; 8]); 11] = [
+        //                      C  Q  P  W  H  D  S  M
+        (Action::Queue,        [A, I, A, A, R, R, R, R]),
+        (Action::Hold,         [A, A, A, A, I, R, R, R]),
+        (Action::Release,      [R, R, R, R, A, R, R, R]),
+        (Action::Rework,       [A, A, R, A, A, R, R, R]),
+        (Action::TrackIn,      [A, A, A, A, R, R, R, R]),
+        (Action::TrackOut,     [A, A, A, A, A, R, R, R]),
+        (Action::Complete,     [A, A, R, A, A, R, R, R]),
+        (Action::ScrapWafer,   [A, A, A, A, A, A, A, A]),
+        (Action::VerifyRecipe, [I, I, I, I, I, I, I, I]),
+        (Action::Split,        [A, A, R, A, A, R, R, R]),
+        (Action::Merge,        [A, A, R, A, A, R, R, R]),
+    ];
+
+    const STEP: i32 = 2;
+    const NOW: i64 = 5_000;
+    const ACTOR: &str = "operator";
+
+    /// A lot in `state` whose data preconditions are all satisfied: four
+    /// queued wafers, a verified recipe, the same current step.
+    fn fixture(state: LotState) -> LotAggregate {
+        let mut lot = agg("LOT-0100", 4);
+        lot.lot.current_step = STEP;
+        lot.lot.state = state;
+        if state == LotState::OnHold {
+            lot.lot.hold_reason = Some("engineer review".to_owned());
+        }
+        verified(&mut lot);
+        lot
+    }
+
+    /// `true` when the refusal is about the lot's state rather than about the
+    /// data in the request.
+    fn is_lifecycle_refusal(error: &TransitionError) -> bool {
+        matches!(
+            error,
+            TransitionError::IllegalState { .. }
+                | TransitionError::AlreadyCompleted
+                | TransitionError::NotOnHold
+        )
+    }
+
+    /// Run `action` against a lot in `state` and classify what happened.
+    ///
+    /// Panics on a *data* refusal: the fixture satisfies every data
+    /// precondition, so one means the fixture or the table is wrong, not the
+    /// guard under test.
+    fn observe(state: LotState, action: Action) -> Outcome {
+        let mut lot = fixture(state);
+        let before = lot.clone();
+        let two = wafer_ids(&lot)[..2].to_vec();
+        let outcome: Result<(), TransitionError> = match action {
+            Action::Queue => lot.queue(STEP, &mut ids(), NOW, ACTOR).map(|_| ()),
+            Action::Hold => lot
+                .hold("engineer review", &mut ids(), NOW, ACTOR)
+                .map(|_| ()),
+            Action::Release => lot.release(&mut ids(), NOW, ACTOR).map(|_| ()),
+            Action::Rework => lot
+                .rework(STEP - 1, "scanner drift", &mut ids(), NOW, ACTOR)
+                .map(|_| ()),
+            Action::TrackIn => track_in(&mut lot, "CLN-01", &two, NOW).map(|_| ()),
+            Action::TrackOut => track_out(&mut lot, "CLN-01", &two, NOW).map(|_| ()),
+            Action::Complete => lot.complete(STEP, &mut ids(), NOW, ACTOR).map(|_| ()),
+            Action::ScrapWafer => lot
+                .scrap_wafer("LOT-0100-W01", "particle", &mut ids(), NOW, ACTOR)
+                .map(|_| ()),
+            Action::VerifyRecipe => {
+                lot.verify_recipe("RCP-CLEAN", &checksum(), &mut ids(), NOW, ACTOR);
+                Ok(())
+            }
+            Action::Split => {
+                let children = ["LOT-0100-A".to_owned(), "LOT-0100-B".to_owned()];
+                lot.split(&children, &mut ids(), NOW, ACTOR).map(|_| ())
+            }
+            Action::Merge => {
+                let mut source = agg("LOT-0200", 2);
+                source.lot.current_step = STEP;
+                source.lot.state = LotState::Waiting;
+                lot.merge(std::slice::from_mut(&mut source), &mut ids(), NOW, ACTOR)
+                    .map(|_| ())
+            }
+        };
+        match outcome {
+            Err(error) if is_lifecycle_refusal(&error) => Outcome::Refused,
+            Err(error) => panic!(
+                "({state:?}, {action:?}) was refused for a data reason ({error}); \
+                 the fixture must satisfy every data precondition"
+            ),
+            Ok(()) if lot == before => Outcome::Idempotent,
+            Ok(()) => Outcome::Accepted,
+        }
+    }
+
+    #[test]
+    fn the_transition_matrix_is_the_lifecycle_contract() {
+        for (action, row) in LIFECYCLE {
+            for state in STATES {
+                assert_eq!(
+                    observe(state, action),
+                    row[column(state)],
+                    "({state:?}, {action:?})"
+                );
+            }
+        }
+    }
+
     #[test]
     fn split_distributes_wafers_and_ends_the_parent() {
         let mut parent = agg("LOT-0001", 10);
@@ -892,7 +1131,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(parent.lot.state, LotState::Split);
-        assert!(parent.wafers.is_empty());
+        assert!(
+            parent.wafers.is_empty(),
+            "the parent keeps no wafers, still holds {:?}",
+            parent.wafers
+        );
         assert_eq!(transition.children.len(), 3);
         let sizes: Vec<i32> = transition
             .children
@@ -1001,41 +1244,15 @@ mod tests {
         let first = wafer_ids(&lot)[..5].to_vec();
         let second = wafer_ids(&lot)[5..].to_vec();
 
-        lot.track_in(1, "CLN-01", "RCP-CLEAN", &first, &mut ids(), 100, "sim")
-            .unwrap();
-        lot.track_out(
-            1,
-            "CLN-01",
-            "RCP-CLEAN",
-            &checksum(),
-            &first,
-            6000,
-            None,
-            &mut ids(),
-            6100,
-            "sim",
-        )
-        .unwrap();
+        track_in(&mut lot, "CLN-01", &first, 100).unwrap();
+        track_out(&mut lot, "CLN-01", &first, 6100).unwrap();
 
         assert_eq!(lot.lot.state, LotState::Waiting);
         assert!(!lot.step_finished(1));
 
         lot.queue(1, &mut ids(), 6200, "sim").unwrap();
-        lot.track_in(1, "CLN-02", "RCP-CLEAN", &second, &mut ids(), 6300, "sim")
-            .unwrap();
-        lot.track_out(
-            1,
-            "CLN-02",
-            "RCP-CLEAN",
-            &checksum(),
-            &second,
-            6000,
-            None,
-            &mut ids(),
-            12300,
-            "sim",
-        )
-        .unwrap();
+        track_in(&mut lot, "CLN-02", &second, 6300).unwrap();
+        track_out(&mut lot, "CLN-02", &second, 12300).unwrap();
 
         assert!(lot.step_finished(1));
         assert_eq!(lot.active_count(), 10);
@@ -1046,38 +1263,12 @@ mod tests {
         let mut lot = agg("LOT-0007", 2);
         verified(&mut lot);
         let all = wafer_ids(&lot);
-        lot.track_in(1, "CLN-01", "RCP-CLEAN", &all, &mut ids(), 100, "sim")
-            .unwrap();
-        lot.track_out(
-            1,
-            "CLN-01",
-            "RCP-CLEAN",
-            &checksum(),
-            &all,
-            6000,
-            None,
-            &mut ids(),
-            6100,
-            "sim",
-        )
-        .unwrap();
+        track_in(&mut lot, "CLN-01", &all, 100).unwrap();
+        track_out(&mut lot, "CLN-01", &all, 6100).unwrap();
         let state_after_first = lot.lot.clone();
         let wafers_after_first = lot.wafers.clone();
 
-        let retry = lot
-            .track_out(
-                1,
-                "CLN-01",
-                "RCP-CLEAN",
-                &checksum(),
-                &all,
-                6000,
-                None,
-                &mut ids(),
-                6200,
-                "sim",
-            )
-            .unwrap();
+        let retry = track_out(&mut lot, "CLN-01", &all, 6200).unwrap();
 
         assert_eq!(retry.events.len(), 1);
         assert_eq!(retry.events[0].kind, EventKind::TrackOutDuplicate);
@@ -1089,9 +1280,7 @@ mod tests {
     fn a_track_out_before_verifying_the_recipe_is_refused() {
         let mut lot = agg("LOT-0008", 2);
         let all = wafer_ids(&lot);
-        let error = lot
-            .track_in(1, "CLN-01", "RCP-CLEAN", &all, &mut ids(), 1, "sim")
-            .unwrap_err();
+        let error = track_in(&mut lot, "CLN-01", &all, 1).unwrap_err();
         assert_eq!(
             error,
             TransitionError::RecipeNotVerified("RCP-CLEAN".into())

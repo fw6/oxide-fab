@@ -1,9 +1,9 @@
-//! The outbox projector: at-least-once delivery from PostgreSQL to GreptimeDB.
+//! The outbox projector: at-least-once delivery from PostgreSQL to `GreptimeDB`.
 //!
 //! A transaction commits `lot_event` + projections + `outbox` together. This
 //! projector then pushes each outbox row to the time series store and marks it
 //! published in the same transaction that records the delivery in
-//! `published_event`. Nothing is lost while GreptimeDB is down: rows simply
+//! `published_event`. Nothing is lost while `GreptimeDB` is down: rows simply
 //! stay pending, and the backlog is what the dashboard's chaos timeline plots.
 
 use std::collections::VecDeque;
@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use tokio::time::{Duration, sleep};
 
 use crate::greptime::GreptimeDb;
-use crate::pg::{PgStore, Result as StoreResult};
+use crate::pg::{PgStore, Result as StoreResult, StoreError};
 
 /// One sample of the delivery backlog, for the UI's recovery timeline.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -34,6 +34,7 @@ pub struct OutboxTimeline {
 }
 
 impl OutboxTimeline {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -46,6 +47,7 @@ impl OutboxTimeline {
         }
     }
 
+    #[must_use]
     pub fn samples(&self) -> Vec<OutboxSample> {
         self.inner
             .lock()
@@ -55,6 +57,7 @@ impl OutboxTimeline {
             .collect()
     }
 
+    #[must_use]
     pub fn latest(&self) -> Option<OutboxSample> {
         self.inner.lock().expect("timeline lock").back().cloned()
     }
@@ -71,11 +74,8 @@ pub async fn publish_once(
     store: &PgStore,
     greptime: &GreptimeDb,
     batch: i64,
-) -> Result<PublishReport, String> {
-    let claimed = store
-        .claim_outbox(batch)
-        .await
-        .map_err(|error| error.to_string())?;
+) -> StoreResult<PublishReport> {
+    let claimed = store.claim_outbox(batch).await?;
     if claimed.is_empty() {
         return Ok(PublishReport {
             delivered_events: 0,
@@ -90,20 +90,22 @@ pub async fn publish_once(
             .cloned()
             .map(serde_json::from_value::<Vec<MetricRow>>)
             .transpose()
-            .map_err(|error| format!("outbox payload is not metric rows: {error}"))?;
+            .map_err(|error| {
+                StoreError::Message(format!("outbox payload is not metric rows: {error}"))
+            })?;
         rows.extend(parsed.unwrap_or_default());
     }
     if let Err(error) = greptime.insert_rows(&rows).await {
+        // Record why on every claimed row before handing the error back, so
+        // the dashboard's outbox view explains the backlog.
+        let message = error.to_string();
         for row in &claimed {
-            let _ = store.mark_failed(row.event_id, &error.to_string()).await;
+            let _ = store.mark_failed(row.event_id, &message).await;
         }
-        return Err(error.to_string());
+        return Err(error.into());
     }
     let ids: Vec<uuid::Uuid> = claimed.iter().map(|row| row.event_id).collect();
-    store
-        .mark_published(&ids, "greptimedb")
-        .await
-        .map_err(|error| error.to_string())?;
+    store.mark_published(&ids, "greptimedb").await?;
     Ok(PublishReport {
         delivered_events: claimed.len(),
         delivered_rows: rows.len(),
@@ -111,6 +113,7 @@ pub async fn publish_once(
 }
 
 /// The long-running projector.
+#[derive(Debug)]
 pub struct Publisher {
     pub store: PgStore,
     pub greptime: GreptimeDb,
@@ -120,6 +123,7 @@ pub struct Publisher {
 }
 
 impl Publisher {
+    #[must_use]
     pub fn new(store: PgStore, greptime: GreptimeDb, timeline: OutboxTimeline) -> Self {
         Self {
             store,
@@ -153,7 +157,7 @@ impl Publisher {
                 });
             }
             tokio::select! {
-                _ = sleep(self.poll_interval) => {}
+                () = sleep(self.poll_interval) => {}
                 _ = shutdown.changed() => {
                     if *shutdown.borrow() {
                         return;
@@ -183,10 +187,7 @@ pub async fn replay(
 ) -> StoreResult<ReplayReport> {
     let started = std::time::Instant::now();
     if truncate {
-        greptime
-            .truncate_all()
-            .await
-            .map_err(|error| crate::pg::StoreError::Message(error.to_string()))?;
+        greptime.truncate_all().await?;
     }
     let events = store.all_events().await?;
     let mut batch = Vec::new();
@@ -196,18 +197,12 @@ pub async fn replay(
         batch.extend(oxide_core::metrics::derive(&persisted.event, route));
         count += 1;
         if batch.len() >= 500 {
-            rows += greptime
-                .insert_rows(&batch)
-                .await
-                .map_err(|error| crate::pg::StoreError::Message(error.to_string()))?;
+            rows += greptime.insert_rows(&batch).await?;
             batch.clear();
         }
     }
     if !batch.is_empty() {
-        rows += greptime
-            .insert_rows(&batch)
-            .await
-            .map_err(|error| crate::pg::StoreError::Message(error.to_string()))?;
+        rows += greptime.insert_rows(&batch).await?;
     }
     Ok(ReplayReport {
         events: count,

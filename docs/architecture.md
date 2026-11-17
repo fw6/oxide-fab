@@ -35,8 +35,8 @@ Rules enforced by the manifests:
 
 - `oxide-core` depends on **serde/serde_json/sha2/uuid only**. No axum, no
   sqlx, no tokio, no network. `cargo test -p oxide-core` needs no database.
-- `oxide-sim` depends on `oxide-core` and serde. It owns time and randomness;
-  it does not know about HTTP, SQL or GreptimeDB.
+- `oxide-sim` depends on `oxide-core`, serde and thiserror (for `SimError`). It
+  owns time and randomness; it does not know about HTTP, SQL or GreptimeDB.
 - `oxide-store` is the only crate that knows SQL. It exposes the event store,
   the outbox projector and the GreptimeDB client.
 - `oxide-api` depends on `oxide-sim` and `oxide-store`; it never talks to

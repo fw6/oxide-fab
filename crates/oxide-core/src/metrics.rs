@@ -23,7 +23,9 @@ pub enum MetricTable {
 }
 
 impl MetricTable {
-    pub fn name(self) -> &'static str {
+    /// The table name in the time series store.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
         match self {
             MetricTable::EquipmentTelemetry => "equipment_telemetry",
             MetricTable::GemEvent => "gem_event",
@@ -32,6 +34,7 @@ impl MetricTable {
         }
     }
 
+    #[must_use]
     pub fn all() -> [MetricTable; 4] {
         [
             MetricTable::EquipmentTelemetry,
@@ -98,6 +101,7 @@ pub enum MetricRow {
 }
 
 impl MetricRow {
+    #[must_use]
     pub fn table(&self) -> MetricTable {
         match self {
             MetricRow::Telemetry(_) => MetricTable::EquipmentTelemetry,
@@ -107,6 +111,7 @@ impl MetricRow {
         }
     }
 
+    #[must_use]
     pub fn event_id(&self) -> Uuid {
         match self {
             MetricRow::Telemetry(p) => p.event_id,
@@ -127,157 +132,169 @@ pub const ALID_EQUIPMENT_DOWN: i64 = 2001;
 /// Derive every time series row the event implies.
 ///
 /// Pure: same event + same route ⇒ same rows, which is what makes replay and
-/// the idempotency contract testable.
+/// the idempotency contract testable. One function per event kind keeps each
+/// table's shape next to the code that fills it.
+#[must_use]
 pub fn derive(event: &DomainEvent, route: &Route) -> Vec<MetricRow> {
-    let mut rows = Vec::new();
     match event.kind {
-        EventKind::TrackOut => {
-            let Some(step_no) = event.step_no() else {
-                return rows;
-            };
-            let Some(step) = route.step(step_no) else {
-                return rows;
-            };
-            let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-            let duration_ms = event
-                .payload
-                .get("duration_ms")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default();
-            let measured = event
-                .payload
-                .get("measured")
-                .and_then(serde_json::Value::as_f64);
-            let step_id = format!("{}-{}", step.step_no, step.name);
-            rows.push(MetricRow::Telemetry(TelemetryPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id: equipment_id.clone(),
-                lot_id: event.lot_id.clone(),
-                step_id: step_id.clone(),
-                param: "process_duration_ms".to_owned(),
-                value: duration_ms as f64,
-                unit: "ms".to_owned(),
-                quality: "good".to_owned(),
-            }));
-            rows.push(MetricRow::Gem(GemPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id: equipment_id.clone(),
-                stream: 6,
-                function: 11,
-                ceid: CEID_PROCESS_COMPLETED,
-                alid: 0,
-                payload: format!("{{\"step\":\"{step_id}\"}}"),
-            }));
-            rows.push(MetricRow::Perf(PerfPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id: equipment_id.clone(),
-                state: "processing".to_owned(),
-                duration_ms,
-            }));
-            if let (Some(measured), Some(ucl), Some(lcl)) = (measured, step.ucl, step.lcl) {
-                rows.push(MetricRow::Spc(SpcPoint {
-                    ts_ms: event.occurred_at_ms,
-                    event_id: event.event_id,
-                    equipment_id,
-                    param: format!("{}_cd_nm", step.name),
-                    value: measured,
-                    ucl,
-                    lcl,
-                }));
-            }
-        }
-        EventKind::TrackIn => {
-            if let (Some(step_no), Some(equipment_id)) = (event.step_no(), event.equipment_id()) {
-                rows.push(MetricRow::Gem(GemPoint {
-                    ts_ms: event.occurred_at_ms,
-                    event_id: event.event_id,
-                    equipment_id: equipment_id.to_owned(),
-                    stream: 6,
-                    function: 11,
-                    ceid: CEID_PROCESS_STARTED,
-                    alid: 0,
-                    payload: format!("{{\"step_no\":{step_no}}}"),
-                }));
-            }
-        }
-        EventKind::EquipmentDown => {
-            let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-            let alid = event
-                .payload
-                .get("alid")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or(ALID_EQUIPMENT_DOWN);
-            let reason = event
-                .payload
-                .get("reason")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("unknown");
-            rows.push(MetricRow::Gem(GemPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id,
-                stream: 5,
-                function: 1,
-                ceid: 0,
-                alid,
-                payload: format!("{{\"reason\":\"{reason}\"}}"),
-            }));
-        }
-        EventKind::EquipmentUp => {
-            let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-            let down_ms = event
-                .payload
-                .get("down_ms")
-                .and_then(serde_json::Value::as_i64)
-                .unwrap_or_default();
-            rows.push(MetricRow::Gem(GemPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id: equipment_id.clone(),
-                stream: 6,
-                function: 11,
-                ceid: CEID_EQUIPMENT_UP,
-                alid: 0,
-                payload: "{}".to_owned(),
-            }));
-            rows.push(MetricRow::Perf(PerfPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id,
-                state: "down".to_owned(),
-                duration_ms: down_ms,
-            }));
-        }
-        EventKind::RecipeVerified => {
-            let recipe_id = event
-                .payload
-                .get("recipe_id")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-            rows.push(MetricRow::Gem(GemPoint {
-                ts_ms: event.occurred_at_ms,
-                event_id: event.event_id,
-                equipment_id,
-                stream: 7,
-                function: 3,
-                ceid: CEID_RECIPE_VERIFIED,
-                alid: 0,
-                payload: format!("{{\"recipe\":\"{recipe_id}\"}}"),
-            }));
-        }
-        _ => {}
+        EventKind::TrackOut => track_out_rows(event, route),
+        EventKind::TrackIn => track_in_rows(event),
+        EventKind::EquipmentDown => equipment_down_rows(event),
+        EventKind::EquipmentUp => equipment_up_rows(event),
+        EventKind::RecipeVerified => recipe_verified_rows(event),
+        _ => Vec::new(),
+    }
+}
+
+fn track_out_rows(event: &DomainEvent, route: &Route) -> Vec<MetricRow> {
+    let Some(step_no) = event.step_no() else {
+        return Vec::new();
+    };
+    let Some(step) = route.step(step_no) else {
+        return Vec::new();
+    };
+    let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
+    let duration_ms = event
+        .payload
+        .get("duration_ms")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or_default();
+    let measured = event
+        .payload
+        .get("measured")
+        .and_then(serde_json::Value::as_f64);
+    let step_id = format!("{}-{}", step.step_no, step.name);
+    let mut rows = vec![
+        MetricRow::Telemetry(TelemetryPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id: equipment_id.clone(),
+            lot_id: event.lot_id.clone(),
+            step_id: step_id.clone(),
+            param: "process_duration_ms".to_owned(),
+            value: duration_ms as f64,
+            unit: "ms".to_owned(),
+            quality: "good".to_owned(),
+        }),
+        MetricRow::Gem(GemPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id: equipment_id.clone(),
+            stream: 6,
+            function: 11,
+            ceid: CEID_PROCESS_COMPLETED,
+            alid: 0,
+            payload: format!("{{\"step\":\"{step_id}\"}}"),
+        }),
+        MetricRow::Perf(PerfPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id: equipment_id.clone(),
+            state: "processing".to_owned(),
+            duration_ms,
+        }),
+    ];
+    if let (Some(measured), Some(ucl), Some(lcl)) = (measured, step.ucl, step.lcl) {
+        rows.push(MetricRow::Spc(SpcPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id,
+            param: format!("{}_cd_nm", step.name),
+            value: measured,
+            ucl,
+            lcl,
+        }));
     }
     rows
+}
+
+fn track_in_rows(event: &DomainEvent) -> Vec<MetricRow> {
+    let (Some(step_no), Some(equipment_id)) = (event.step_no(), event.equipment_id()) else {
+        return Vec::new();
+    };
+    vec![MetricRow::Gem(GemPoint {
+        ts_ms: event.occurred_at_ms,
+        event_id: event.event_id,
+        equipment_id: equipment_id.to_owned(),
+        stream: 6,
+        function: 11,
+        ceid: CEID_PROCESS_STARTED,
+        alid: 0,
+        payload: format!("{{\"step_no\":{step_no}}}"),
+    })]
+}
+
+fn equipment_down_rows(event: &DomainEvent) -> Vec<MetricRow> {
+    let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
+    let alid = event
+        .payload
+        .get("alid")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or(ALID_EQUIPMENT_DOWN);
+    let reason = event
+        .payload
+        .get("reason")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown");
+    vec![MetricRow::Gem(GemPoint {
+        ts_ms: event.occurred_at_ms,
+        event_id: event.event_id,
+        equipment_id,
+        stream: 5,
+        function: 1,
+        ceid: 0,
+        alid,
+        payload: format!("{{\"reason\":\"{reason}\"}}"),
+    })]
+}
+
+fn equipment_up_rows(event: &DomainEvent) -> Vec<MetricRow> {
+    let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
+    let down_ms = event
+        .payload
+        .get("down_ms")
+        .and_then(serde_json::Value::as_i64)
+        .unwrap_or_default();
+    vec![
+        MetricRow::Gem(GemPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id: equipment_id.clone(),
+            stream: 6,
+            function: 11,
+            ceid: CEID_EQUIPMENT_UP,
+            alid: 0,
+            payload: "{}".to_owned(),
+        }),
+        MetricRow::Perf(PerfPoint {
+            ts_ms: event.occurred_at_ms,
+            event_id: event.event_id,
+            equipment_id,
+            state: "down".to_owned(),
+            duration_ms: down_ms,
+        }),
+    ]
+}
+
+fn recipe_verified_rows(event: &DomainEvent) -> Vec<MetricRow> {
+    let recipe_id = event.recipe_id().unwrap_or_default();
+    let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
+    vec![MetricRow::Gem(GemPoint {
+        ts_ms: event.occurred_at_ms,
+        event_id: event.event_id,
+        equipment_id,
+        stream: 7,
+        function: 3,
+        ceid: CEID_RECIPE_VERIFIED,
+        alid: 0,
+        payload: format!("{{\"recipe\":\"{recipe_id}\"}}"),
+    })]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{DomainEvent, track_out_payload};
+    use crate::events::{TrackOutReport, track_out_payload};
     use crate::model::RouteStep;
 
     fn route() -> Route {
@@ -307,23 +324,29 @@ mod tests {
         let eid = Uuid::nil();
         let event = event(
             EventKind::TrackOut,
-            track_out_payload(
-                4,
-                "MET-01",
-                "RCP-METRO",
-                "abc",
-                &["W1".into()],
-                5000,
-                Some(101.2),
-            ),
+            track_out_payload(&TrackOutReport {
+                step_no: 4,
+                equipment_id: "MET-01",
+                recipe_id: "RCP-METRO",
+                recipe_checksum: "abc",
+                wafers: &["W1".into()],
+                duration_ms: 5000,
+                measured: Some(101.2),
+            }),
             eid,
         );
         let rows = derive(&event, &route());
         assert_eq!(rows.len(), 4);
-        assert!(
-            rows.iter()
-                .any(|r| matches!(r, MetricRow::Spc(p) if p.value == 101.2))
-        );
+        // The sample is copied through the payload verbatim, so bit equality
+        // is the contract here, not an epsilon comparison.
+        let measured = rows
+            .iter()
+            .find_map(|row| match row {
+                MetricRow::Spc(point) => Some(point.value),
+                _ => None,
+            })
+            .expect("a metrology track-out yields an SPC sample");
+        assert_eq!(measured, 101.2);
         assert!(rows.iter().all(|r| r.event_id() == eid));
     }
 

@@ -6,18 +6,19 @@
 use oxide_core::genealogy::WaferGenealogy;
 use oxide_core::model::{Lot, Wafer};
 use oxide_secs::SecsStatus;
-use oxide_sim::{EquipmentView, LotView, SimSnapshot, StepView};
+use oxide_sim::SimSnapshot;
 use oxide_store::greptime::SpcBucket;
 use oxide_store::outbox::OutboxSample;
 use oxide_store::{DbCounts, OutboxStats, PersistedEvent};
 use serde::{Deserialize, Serialize};
 
+/// One dashboard refresh.
+///
+/// The floor (steps, tools, lots) lives only in `sim`; projecting it twice
+/// would double the payload and let the two copies disagree.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DashboardSnapshot {
     pub sim: SimSnapshot,
-    pub steps: Vec<StepView>,
-    pub equipment: Vec<EquipmentView>,
-    pub lots: Vec<LotView>,
     pub db: DbCounts,
     pub outbox: OutboxStats,
     pub last_seq: i64,

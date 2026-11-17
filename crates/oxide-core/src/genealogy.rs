@@ -56,12 +56,7 @@ pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenea
                     continue;
                 };
                 let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-                let recipe_id = event
-                    .payload
-                    .get("recipe_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
+                let recipe_id = event.recipe_id().unwrap_or_default().to_owned();
                 for wafer_id in event.wafers() {
                     if let Some(record) = out.iter_mut().find(|g| g.wafer_id == wafer_id) {
                         record.steps.push(WaferStepRecord {

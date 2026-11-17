@@ -1,5 +1,5 @@
 //! Persistence for oxide-fab: the PostgreSQL event store, its transactional
-//! outbox, and the GreptimeDB writer that consumes it.
+//! outbox, and the `GreptimeDB` writer that consumes it.
 
 pub mod greptime;
 pub mod outbox;

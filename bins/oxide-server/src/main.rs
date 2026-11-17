@@ -27,11 +27,10 @@ struct Config {
 }
 
 impl Config {
-    fn from_env() -> Result<Self> {
-        let secs_enabled = std::env::var("SECS_ENABLED")
-            .map(|value| value != "false" && value != "0")
-            .unwrap_or(true);
-        Ok(Self {
+    fn from_env() -> Self {
+        let secs_enabled =
+            std::env::var("SECS_ENABLED").map_or(true, |value| value != "false" && value != "0");
+        Self {
             http_addr: std::env::var("OXIDE_HTTP_ADDR")
                 .unwrap_or_else(|_| "0.0.0.0:8080".to_owned()),
             database_url: std::env::var("DATABASE_URL")
@@ -48,7 +47,7 @@ impl Config {
             secs_bind: std::env::var("SECS_BIND").unwrap_or_else(|_| "127.0.0.1:50010".to_owned()),
             secs_enabled,
             migrate_only: std::env::args().any(|arg| arg == "--migrate-only"),
-        })
+        }
     }
 }
 
@@ -61,12 +60,12 @@ async fn main() -> Result<()> {
         )
         .init();
 
-    let config = Config::from_env()?;
+    let config = Config::from_env();
     let scenario_text = std::fs::read_to_string(&config.scenario_path)
         .with_context(|| format!("reading {}", config.scenario_path.display()))?;
     let scenario = Scenario::from_json(&scenario_text)
         .with_context(|| format!("parsing {}", config.scenario_path.display()))?;
-    scenario.validate().map_err(anyhow::Error::msg)?;
+    scenario.validate()?;
     tracing::info!(line = %scenario.name, lots = scenario.lot_count, "scenario loaded");
 
     let store = connect_with_retry(&config.database_url).await?;
@@ -86,7 +85,7 @@ async fn main() -> Result<()> {
     let scenario = Arc::new(scenario);
     let (simulation, restored_from) = restore_simulation(&store, &scenario).await?;
     tracing::info!(from = %restored_from, "simulation ready");
-    let simulation = Arc::new(Mutex::new(simulation));
+    let simulation = Mutex::new(simulation);
 
     if store.max_seq().await.unwrap_or(0) == 0 {
         // A fresh log means a fresh demo: do not leave points from a previous
@@ -120,7 +119,7 @@ async fn main() -> Result<()> {
     };
 
     let state: Shared = Arc::new(AppState {
-        sim: Arc::clone(&simulation),
+        sim: simulation,
         store: store.clone(),
         greptime: greptime.clone(),
         timeline: timeline.clone(),
@@ -202,8 +201,7 @@ async fn restore_simulation(store: &PgStore, scenario: &Scenario) -> Result<(Sim
         Some(snapshot) => {
             let state: oxide_sim::SimState = serde_json::from_value(snapshot.state)
                 .context("snapshot state does not match SimState")?;
-            let mut sim =
-                Simulation::from_state(scenario.clone(), state).map_err(anyhow::Error::msg)?;
+            let mut sim = Simulation::from_state(scenario.clone(), state)?;
             let events = store.events_since(snapshot.last_seq, 100_000).await?;
             for persisted in &events {
                 sim.apply_event(&persisted.event);
@@ -214,10 +212,7 @@ async fn restore_simulation(store: &PgStore, scenario: &Scenario) -> Result<(Sim
                 format!("snapshot@{} + {} events", snapshot.last_seq, events.len()),
             ))
         }
-        None => Ok((
-            Simulation::new(scenario.clone()).map_err(anyhow::Error::msg)?,
-            "fresh".to_owned(),
-        )),
+        None => Ok((Simulation::new(scenario.clone())?, "fresh".to_owned())),
     }
 }
 
@@ -242,9 +237,8 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
             let mut secs = Vec::new();
             if pending.is_empty() {
                 let output = {
-                    let mut sim = match state.sim.lock() {
-                        Ok(sim) => sim,
-                        Err(_) => return,
+                    let Ok(mut sim) = state.sim.lock() else {
+                        return;
                     };
                     let speed = sim.speed();
                     sim.tick(((wall_ms as f64) * speed) as i64)
@@ -255,8 +249,7 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
             forward_secs(&state, secs);
 
             if !pending.is_empty() {
-                let route = state.route().clone();
-                match state.store.append_events(&pending, &route).await {
+                match state.store.append_events(&pending, state.route()).await {
                     Ok(_) => {
                         let count = pending.len() as u64;
                         pending.clear();
@@ -281,11 +274,7 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
                 }
             }
 
-            let persisted = state
-                .sim
-                .lock()
-                .map(|sim| sim.persisted_events())
-                .unwrap_or(0);
+            let persisted = state.sim.lock().map_or(0, |sim| sim.persisted_events());
             let every = state.scenario.snapshot_every_events.max(1);
             // Modulo, not a running difference: `/admin/reset` restarts the
             // counter, and a difference would then stay negative for a long
@@ -330,9 +319,8 @@ fn forward_secs(state: &Shared, triggers: Vec<SecsTrigger>) {
 
 async fn save_snapshot(state: &Shared) {
     let (snapshot, last_seq) = {
-        let sim = match state.sim.lock() {
-            Ok(sim) => sim,
-            Err(_) => return,
+        let Ok(sim) = state.sim.lock() else {
+            return;
         };
         (sim.snapshot(), sim.persisted_events())
     };

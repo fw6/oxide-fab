@@ -15,11 +15,39 @@ pub enum StoreError {
     Db(#[from] sqlx::Error),
     #[error("migration: {0}")]
     Migrate(#[from] sqlx::migrate::MigrateError),
+    /// A row holds a value this build does not know. Silently mapping it onto
+    /// a default would rewrite history on the next replay.
+    #[error("{table}.{column} holds {value:?}, which this build does not know")]
+    UnknownValue {
+        table: &'static str,
+        column: &'static str,
+        value: String,
+    },
+    #[error("time series: {0}")]
+    Greptime(#[from] crate::greptime::GreptimeError),
     #[error("{0}")]
     Message(String),
 }
 
 pub type Result<T> = std::result::Result<T, StoreError>;
+
+impl StoreError {
+    /// `true` when the failure is a connectivity problem rather than a query
+    /// or data problem: the HTTP layer turns these into `503` so a client
+    /// retries instead of treating the request as a bug.
+    #[must_use]
+    pub fn is_unavailable(&self) -> bool {
+        match self {
+            // A new variant defaults to "not a connectivity problem", which is
+            // the safe answer: 500, not a retry loop.
+            StoreError::Db(
+                sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed | sqlx::Error::Io(_),
+            )
+            | StoreError::Greptime(crate::greptime::GreptimeError::Http(_)) => true,
+            _ => false,
+        }
+    }
+}
 
 /// An event as stored, with its global sequence number.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,16 +90,18 @@ pub struct LotGenealogy {
     pub events: Vec<PersistedEvent>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PgStore {
     pool: PgPool,
 }
 
 impl PgStore {
+    #[must_use]
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
     }
 
+    #[must_use]
     pub fn pool(&self) -> &PgPool {
         &self.pool
     }
@@ -246,7 +276,7 @@ impl PgStore {
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(event_from_row).collect())
+        rows.into_iter().map(event_from_row).collect()
     }
 
     pub async fn events_for_lot(&self, lot_id: &str) -> Result<Vec<PersistedEvent>> {
@@ -257,7 +287,7 @@ impl PgStore {
         .bind(lot_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(event_from_row).collect())
+        rows.into_iter().map(event_from_row).collect()
     }
 
     pub async fn all_events(&self) -> Result<Vec<PersistedEvent>> {
@@ -267,7 +297,7 @@ impl PgStore {
         )
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows.into_iter().map(event_from_row).collect())
+        rows.into_iter().map(event_from_row).collect()
     }
 
     pub async fn max_seq(&self) -> Result<i64> {
@@ -298,14 +328,14 @@ impl PgStore {
         let loaded = wafer_rows
             .into_iter()
             .map(wafer_from_row)
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
         let events = self.events_for_lot(lot_id).await?;
         let genealogy = genealogy_for(
             &loaded,
             &events.iter().map(|e| e.event.clone()).collect::<Vec<_>>(),
         );
         Ok(Some(LotGenealogy {
-            lot: lot_from_row(lot_row),
+            lot: lot_from_row(lot_row)?,
             wafers: loaded,
             genealogy,
             events,
@@ -490,6 +520,14 @@ impl PgStore {
     }
 }
 
+/// Project one event onto the tables the dashboard reads.
+///
+/// One arm per `EventKind`, kept together so the vocabulary and its SQL
+/// projection can be reviewed side by side.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per event kind; splitting scatters the projection"
+)]
 async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Result<()> {
     match event.kind {
         EventKind::LotCreated => {
@@ -497,14 +535,13 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .payload
                 .get("wafers")
                 .and_then(Value::as_array)
-                .map(|items| {
+                .map_or_default(|items| {
                     items
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_owned)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let created_at = chrono::DateTime::from_timestamp_millis(event.occurred_at_ms)
                 .unwrap_or_else(chrono::Utc::now);
             sqlx::query(
@@ -665,14 +702,13 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 let wafers: Vec<String> = child
                     .get("wafers")
                     .and_then(Value::as_array)
-                    .map(|items| {
+                    .map_or_default(|items| {
                         items
                             .iter()
                             .filter_map(Value::as_str)
                             .map(str::to_owned)
                             .collect()
-                    })
-                    .unwrap_or_default();
+                    });
                 sqlx::query(
                     "INSERT INTO lot (id, product_id, route_id, priority, state, current_step,
                                       wafer_count, created_at, parent_lot_id)
@@ -713,14 +749,13 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .payload
                 .get("wafers")
                 .and_then(Value::as_array)
-                .map(|items| {
+                .map_or_default(|items| {
                     items
                         .iter()
                         .filter_map(Value::as_str)
                         .map(str::to_owned)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM wafer WHERE lot_id = $1")
                 .bind(target)
                 .fetch_one(&mut **tx)
@@ -780,20 +815,28 @@ type EventColumns = (
     String,
 );
 
-fn event_from_row(row: EventColumns) -> PersistedEvent {
+/// Rebuild a `DomainEvent` from its columns.
+///
+/// An unknown `kind` is an error, not a default: a replay that silently
+/// reclassified a row would corrupt the projection it is rebuilding.
+fn event_from_row(row: EventColumns) -> Result<PersistedEvent> {
     let (seq, event_id, lot_id, wafer_id, kind, payload, occurred_at_ms, actor) = row;
-    PersistedEvent {
+    Ok(PersistedEvent {
         seq,
         event: DomainEvent {
             event_id,
             lot_id,
             wafer_id,
-            kind: EventKind::parse(&kind).unwrap_or(EventKind::LotCreated),
+            kind: EventKind::parse(&kind).ok_or_else(|| StoreError::UnknownValue {
+                table: "lot_event",
+                column: "kind",
+                value: kind,
+            })?,
             payload,
             occurred_at_ms,
             actor,
         },
-    }
+    })
 }
 
 type LotColumns = (
@@ -809,7 +852,7 @@ type LotColumns = (
     Option<String>,
 );
 
-fn lot_from_row(row: LotColumns) -> Lot {
+fn lot_from_row(row: LotColumns) -> Result<Lot> {
     let (
         id,
         product_id,
@@ -822,32 +865,40 @@ fn lot_from_row(row: LotColumns) -> Lot {
         created_at,
         parent_lot_id,
     ) = row;
-    Lot {
+    Ok(Lot {
         id,
         product_id,
         route_id,
         priority,
-        state: LotState::parse(&state).unwrap_or(LotState::Created),
+        state: LotState::parse(&state).ok_or_else(|| StoreError::UnknownValue {
+            table: "lot",
+            column: "state",
+            value: state,
+        })?,
         hold_reason,
         current_step,
         wafer_count,
         created_at_ms: created_at.timestamp_millis(),
         parent_lot_id,
-    }
+    })
 }
 
 type WaferColumns = (String, String, i32, String, Option<String>, i32);
 
-fn wafer_from_row(row: WaferColumns) -> Wafer {
+fn wafer_from_row(row: WaferColumns) -> Result<Wafer> {
     let (id, lot_id, slot, state, defect_info, rework_count) = row;
-    Wafer {
+    Ok(Wafer {
         id,
         lot_id,
         slot,
-        state: WaferState::parse(&state).unwrap_or(WaferState::Created),
+        state: WaferState::parse(&state).ok_or_else(|| StoreError::UnknownValue {
+            table: "wafer",
+            column: "state",
+            value: state,
+        })?,
         defect_info,
         rework_count: rework_count.max(0) as u32,
-    }
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -855,4 +906,59 @@ pub struct OutboxRow {
     pub event_id: Uuid,
     pub payload: Value,
     pub attempts: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A row written by a newer build must stop the replay, not be silently
+    /// reclassified as `lot_created`.
+    #[test]
+    fn an_unknown_event_kind_is_an_error() {
+        let row: EventColumns = (
+            1,
+            Uuid::nil(),
+            "LOT-0001".to_owned(),
+            None,
+            "lot_exploded".to_owned(),
+            Value::Null,
+            0,
+            "test".to_owned(),
+        );
+        let error = event_from_row(row).unwrap_err();
+        assert!(matches!(
+            error,
+            StoreError::UnknownValue {
+                column: "kind",
+                value,
+                ..
+            } if value == "lot_exploded"
+        ));
+    }
+
+    #[test]
+    fn an_unknown_lot_state_is_an_error() {
+        let row: LotColumns = (
+            "LOT-0001".to_owned(),
+            "PRD-OXIDE-300".to_owned(),
+            "RTE-LOGIC-4".to_owned(),
+            5,
+            "haunted".to_owned(),
+            None,
+            1,
+            2,
+            chrono::Utc::now(),
+            None,
+        );
+        let error = lot_from_row(row).unwrap_err();
+        assert!(matches!(
+            error,
+            StoreError::UnknownValue {
+                table: "lot",
+                column: "state",
+                ..
+            }
+        ));
+    }
 }

@@ -5,29 +5,32 @@
 
 use std::sync::Arc;
 
-use nsh_core::geometry::{px, Size};
+use nsh_core::geometry::{Size, px};
 use nsh_engine::{EngineConfig, Root};
 use nsh_testing::{Headless, StubNetwork, StubResponse};
 
 const SNAPSHOT: &str = r#"{
-  "steps": [
-    {"step_no":1,"name":"clean","equipment_kind":"clean","queue_len":1,"busy_tools":1,"total_tools":2,"current_lots":["LOT-0001"]},
-    {"step_no":2,"name":"litho","equipment_kind":"litho","queue_len":0,"busy_tools":0,"total_tools":2,"current_lots":[]},
-    {"step_no":3,"name":"etch","equipment_kind":"etch","queue_len":0,"busy_tools":0,"total_tools":1,"current_lots":[]},
-    {"step_no":4,"name":"metrology","equipment_kind":"metrology","queue_len":0,"busy_tools":0,"total_tools":1,"current_lots":[]}
-  ],
-  "equipment": [
-    {"id":"CLN-01","kind":"clean","chamber":"C1","state":"running","light":"green","current_lot":"LOT-0001","current_step":1,"lots_processed":3},
-    {"id":"CLN-02","kind":"clean","chamber":"C2","state":"down","light":"red","current_lot":null,"current_step":null,"lots_processed":0}
-  ],
-  "lots": [
-    {"id":"LOT-0001","product_id":"PRD-OXIDE-300","state":"queued","current_step":1,"priority":5,
-     "wafer_count":2,"done_wafers":0,"hold_reason":null,"parent_lot_id":null,
-     "wafers":[
-       {"id":"LOT-0001-W01","slot":1,"state":"queued","defect_info":null,"rework_count":0},
-       {"id":"LOT-0001-W02","slot":2,"state":"queued","defect_info":null,"rework_count":0}
-     ]}
-  ],
+  "sim": {
+    "now_ms":1763290000000,"running":true,"speed":10.0,"released_lots":1,"total_lots":1,"persisted_events":7,
+    "steps": [
+      {"step_no":1,"name":"clean","equipment_kind":"clean","queue_len":1,"busy_tools":1,"total_tools":2,"current_lots":["LOT-0001"]},
+      {"step_no":2,"name":"litho","equipment_kind":"litho","queue_len":0,"busy_tools":0,"total_tools":2,"current_lots":[]},
+      {"step_no":3,"name":"etch","equipment_kind":"etch","queue_len":0,"busy_tools":0,"total_tools":1,"current_lots":[]},
+      {"step_no":4,"name":"metrology","equipment_kind":"metrology","queue_len":0,"busy_tools":0,"total_tools":1,"current_lots":[]}
+    ],
+    "equipment": [
+      {"id":"CLN-01","kind":"clean","chamber":"C1","state":"running","light":"green","current_lot":"LOT-0001","current_step":1,"lots_processed":3},
+      {"id":"CLN-02","kind":"clean","chamber":"C2","state":"down","light":"red","current_lot":null,"current_step":null,"lots_processed":0}
+    ],
+    "lots": [
+      {"id":"LOT-0001","product_id":"PRD-OXIDE-300","state":"queued","current_step":1,"priority":5,
+       "wafer_count":2,"done_wafers":0,"hold_reason":null,"parent_lot_id":null,
+       "wafers":[
+         {"id":"LOT-0001-W01","slot":1,"state":"queued","defect_info":null,"rework_count":0},
+         {"id":"LOT-0001-W02","slot":2,"state":"queued","defect_info":null,"rework_count":0}
+       ]}
+    ]
+  },
   "db": {"lots":1,"wafers":2,"events":7,"outbox_pending":0,"outbox_published":7,"published_events":7},
   "outbox": {"pending":0,"published":7,"oldest_pending_ms":0,"max_attempts":0},
   "last_seq": 7,
@@ -43,8 +46,7 @@ const SNAPSHOT: &str = r#"{
     {"ts":"2026-11-16T12:00:00Z","equipment_id":"MET-01","param":"metrology_cd_nm","avg_value":100.2,"min_value":100.0,"max_value":100.4,"ucl":103.0,"lcl":97.0}
   ],
   "spc_source": "flow",
-  "chaos": [{"at_ms":1,"pending":0,"published":7,"oldest_pending_ms":0,"delivered_rows":10}],
-  "sim": {"now_ms":1763290000000,"running":true,"speed":10.0,"released_lots":1,"total_lots":1,"persisted_events":7}
+  "chaos": [{"at_ms":1,"pending":0,"published":7,"oldest_pending_ms":0,"delivered_rows":10}]
 }"#;
 
 const EVENTS: &str = r#"{"events":[],"last_seq":7}"#;
@@ -199,7 +201,9 @@ fn the_dashboard_survives_an_unreachable_api() {
     // No routes: every fetch fails, so the shell must still render and say it
     // is reconnecting instead of panicking.
     let mut config = EngineConfig::new(Root::of::<oxide_ui::App>());
-    config.network = Some(Arc::new(StubNetwork::new(Vec::<(String, StubResponse)>::new())));
+    config.network = Some(Arc::new(StubNetwork::new(
+        Vec::<(String, StubResponse)>::new(),
+    )));
     let mut app = Headless::start(config).expect("the dashboard starts offline");
     app.wait_for("text:氧化层 · oxide-fab").unwrap();
     app.wait_for("text:重连中").unwrap();

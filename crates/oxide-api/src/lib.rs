@@ -15,8 +15,10 @@ use oxide_sim::Simulation;
 use oxide_store::{GreptimeDb, OutboxTimeline, PgStore};
 
 /// Everything a handler needs. Cheap to clone: all fields are handles.
+#[derive(Debug)]
 pub struct AppState {
-    pub sim: Arc<Mutex<Simulation>>,
+    /// The engine. Not behind its own `Arc`: `AppState` is already shared.
+    pub sim: Mutex<Simulation>,
     pub store: PgStore,
     pub greptime: GreptimeDb,
     pub timeline: OutboxTimeline,

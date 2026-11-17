@@ -29,3 +29,6 @@ uuid.workspace = true
 [features]
 default = ["secs-gem"]
 secs-gem = ["oxide-secs/secs-gem"]
+
+[lints]
+workspace = true

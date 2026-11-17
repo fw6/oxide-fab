@@ -6,6 +6,8 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::string_enum::string_enum;
+
 pub type LotId = String;
 pub type WaferId = String;
 
@@ -31,32 +33,30 @@ pub enum LotState {
     Merged,
 }
 
-impl LotState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            LotState::Created => "created",
-            LotState::Queued => "queued",
-            LotState::Processing => "processing",
-            LotState::Waiting => "waiting",
-            LotState::OnHold => "on_hold",
-            LotState::Completed => "completed",
-            LotState::Split => "split",
-            LotState::Merged => "merged",
-        }
-    }
+string_enum!(LotState {
+    Created => "created",
+    Queued => "queued",
+    Processing => "processing",
+    Waiting => "waiting",
+    OnHold => "on_hold",
+    Completed => "completed",
+    Split => "split",
+    Merged => "merged",
+});
 
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "created" => LotState::Created,
-            "queued" => LotState::Queued,
-            "processing" => LotState::Processing,
-            "waiting" => LotState::Waiting,
-            "on_hold" => LotState::OnHold,
-            "completed" => LotState::Completed,
-            "split" => LotState::Split,
-            "merged" => LotState::Merged,
-            _ => return None,
-        })
+impl LotState {
+    /// `true` once the lot's life has ended for good: completed, split into
+    /// children, or merged into another lot.
+    ///
+    /// No process action may move a lot out of these states; the state
+    /// machine's guards all consult this one predicate, and
+    /// `tests::the_transition_matrix_is_the_lifecycle_contract` pins it.
+    #[must_use]
+    pub fn is_terminal(self) -> bool {
+        matches!(
+            self,
+            LotState::Completed | LotState::Split | LotState::Merged
+        )
     }
 }
 
@@ -72,30 +72,14 @@ pub enum WaferState {
     Scrapped,
 }
 
-impl WaferState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            WaferState::Created => "created",
-            WaferState::Queued => "queued",
-            WaferState::Processing => "processing",
-            WaferState::Waiting => "waiting",
-            WaferState::Done => "done",
-            WaferState::Scrapped => "scrapped",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "created" => WaferState::Created,
-            "queued" => WaferState::Queued,
-            "processing" => WaferState::Processing,
-            "waiting" => WaferState::Waiting,
-            "done" => WaferState::Done,
-            "scrapped" => WaferState::Scrapped,
-            _ => return None,
-        })
-    }
-}
+string_enum!(WaferState {
+    Created => "created",
+    Queued => "queued",
+    Processing => "processing",
+    Waiting => "waiting",
+    Done => "done",
+    Scrapped => "scrapped",
+});
 
 /// One wafer of a lot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -154,6 +138,7 @@ pub struct RouteStep {
 }
 
 impl RouteStep {
+    #[must_use]
     pub fn is_metrology(&self) -> bool {
         self.ucl.is_some() && self.lcl.is_some()
     }
@@ -168,14 +153,17 @@ pub struct Route {
 }
 
 impl Route {
+    #[must_use]
     pub fn step(&self, step_no: i32) -> Option<&RouteStep> {
         self.steps.iter().find(|s| s.step_no == step_no)
     }
 
+    #[must_use]
     pub fn first_step(&self) -> i32 {
-        self.steps.first().map(|s| s.step_no).unwrap_or(1)
+        self.steps.first().map_or(1, |s| s.step_no)
     }
 
+    #[must_use]
     pub fn next_step(&self, step_no: i32) -> Option<i32> {
         self.steps
             .iter()
@@ -183,8 +171,9 @@ impl Route {
             .map(|s| s.step_no)
     }
 
+    #[must_use]
     pub fn last_step(&self) -> i32 {
-        self.steps.last().map(|s| s.step_no).unwrap_or(1)
+        self.steps.last().map_or(1, |s| s.step_no)
     }
 }
 
@@ -209,14 +198,22 @@ impl Recipe {
     }
 
     /// SHA-256 of the program body, lowercase hex.
+    #[must_use]
     pub fn checksum_of(body: &str) -> String {
         use sha2::{Digest, Sha256};
+        const HEX: &[u8; 16] = b"0123456789abcdef";
         let digest = Sha256::digest(body.as_bytes());
-        digest.iter().map(|b| format!("{b:02x}")).collect()
+        let mut checksum = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            checksum.push(char::from(HEX[usize::from(byte >> 4)]));
+            checksum.push(char::from(HEX[usize::from(byte & 0x0f)]));
+        }
+        checksum
     }
 
     /// `true` when `checksum` matches the body. A mismatch must abort the
     /// download: an unverified recipe never reaches a tool.
+    #[must_use]
     pub fn verify(&self, checksum: &str) -> bool {
         self.checksum == checksum && Self::checksum_of(&self.body) == checksum
     }
@@ -232,26 +229,12 @@ pub enum EquipmentState {
     Maintenance,
 }
 
-impl EquipmentState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            EquipmentState::Idle => "idle",
-            EquipmentState::Running => "running",
-            EquipmentState::Down => "down",
-            EquipmentState::Maintenance => "maintenance",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "idle" => EquipmentState::Idle,
-            "running" => EquipmentState::Running,
-            "down" => EquipmentState::Down,
-            "maintenance" => EquipmentState::Maintenance,
-            _ => return None,
-        })
-    }
-}
+string_enum!(EquipmentState {
+    Idle => "idle",
+    Running => "running",
+    Down => "down",
+    Maintenance => "maintenance",
+});
 
 /// One simulated tool.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -265,10 +248,12 @@ pub struct Equipment {
 }
 
 impl Equipment {
+    #[must_use]
     pub fn is_available(&self) -> bool {
         matches!(self.state, EquipmentState::Idle)
     }
 
+    #[must_use]
     pub fn qualified_for(&self, recipe_id: &str) -> bool {
         self.qualification.iter().any(|q| q == recipe_id)
             || self.qualification.iter().any(|q| q == "*")
@@ -292,7 +277,6 @@ pub struct Lot {
 }
 
 impl Lot {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         id: impl Into<LotId>,
         product_id: impl Into<String>,
@@ -314,13 +298,10 @@ impl Lot {
             parent_lot_id: None,
         }
     }
-
-    pub fn id(&self) -> &str {
-        &self.id
-    }
 }
 
 /// A deterministic lot id generator: `LOT-0001`.
+#[must_use]
 pub fn lot_id_for(serial: u64) -> String {
     format!("LOT-{serial:04}")
 }
@@ -329,6 +310,7 @@ pub fn lot_id_for(serial: u64) -> String {
 ///
 /// Events keep their id across replays so the time series store can dedupe
 /// them; they are UUID v4-shaped but derived, never random.
+#[must_use]
 pub fn deterministic_event_id(seed: u64, counter: u64) -> Uuid {
     let mut bytes = [0u8; 16];
     bytes[0..8].copy_from_slice(&seed.to_be_bytes());

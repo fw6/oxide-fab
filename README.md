@@ -281,6 +281,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 ## 文档
 
 - [docs/architecture.md](docs/architecture.md) — 分层与模块依赖
+- [docs/rust-guidelines-review.md](docs/rust-guidelines-review.md) — 按 Pragmatic Rust Guidelines 的审查记录、lint 门禁与后续重构建议
 - [docs/acceptance.md](docs/acceptance.md) — 第 13 节 12 项验收的实测记录与证据路径
 - [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型

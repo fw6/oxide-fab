@@ -93,6 +93,14 @@ jobs:
       - name: nsh version
         run: nsh --version
 
+      # The UI is its own Cargo workspace, so the root job's clippy gate does
+      # not see it. Same policy, same flags.
+      - name: cargo fmt and clippy (the UI's own workspace)
+        run: |
+          cargo fmt --manifest-path crates/oxide-ui/Cargo.toml --all -- --check
+          cargo clippy --manifest-path crates/oxide-ui/Cargo.toml \
+            --all-targets -- -D warnings
+
       - name: nsh check (cargo check for the crate)
         run: nsh check crates/oxide-ui
 

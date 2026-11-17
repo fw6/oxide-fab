@@ -1,4 +1,4 @@
-//! GreptimeDB: the derived time series store.
+//! `GreptimeDB`: the derived time series store.
 //!
 //! Every write goes through the official HTTP SQL interface, and every table
 //! is created with the primary key that includes `event_id`, so re-delivering
@@ -36,7 +36,7 @@ pub struct SpcBucket {
     pub lcl: f64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct GreptimeDb {
     base: String,
     database: String,
@@ -96,8 +96,7 @@ impl GreptimeDb {
         let present = existing.iter().any(|row| {
             row.get("flow_name")
                 .and_then(Value::as_str)
-                .map(|name| name == "spc_downsample")
-                .unwrap_or(false)
+                .is_some_and(|name| name == "spc_downsample")
         });
         if !present {
             self.execute(DOWNSAMPLE_FLOW).await?;
@@ -109,7 +108,7 @@ impl GreptimeDb {
     pub async fn insert_rows(&self, rows: &[MetricRow]) -> Result<usize> {
         let mut by_table: BTreeMap<&'static str, Vec<&MetricRow>> = BTreeMap::new();
         for row in rows {
-            by_table.entry(row.table().name()).or_default().push(row);
+            by_table.entry(row.table().as_str()).or_default().push(row);
         }
         let mut written = 0;
         for (table, rows) in by_table {
@@ -132,21 +131,7 @@ impl GreptimeDb {
     pub async fn table_counts(&self) -> Result<BTreeMap<String, i64>> {
         let mut counts = BTreeMap::new();
         for table in MetricTable::all() {
-            let rows = self
-                .execute(&format!("SELECT count(*) AS c FROM {}", table.name()))
-                .await
-                .unwrap_or_default();
-            let count = rows
-                .first()
-                .and_then(|row| row.get("c"))
-                .and_then(|value| {
-                    value
-                        .as_i64()
-                        .or_else(|| value.as_u64().map(|v| v as i64))
-                        .or_else(|| value.as_str().and_then(|s| s.parse::<i64>().ok()))
-                })
-                .unwrap_or(0);
-            counts.insert(table.name().to_owned(), count);
+            counts.insert(table.as_str().to_owned(), self.counts_for(table).await?);
         }
         Ok(counts)
     }
@@ -155,8 +140,7 @@ impl GreptimeDb {
     pub async fn spc_average(&self) -> Result<f64> {
         let rows = self
             .execute("SELECT avg(`value`) AS m FROM spc_sample")
-            .await
-            .unwrap_or_default();
+            .await?;
         Ok(rows
             .first()
             .and_then(|row| row.get("m"))
@@ -170,7 +154,7 @@ impl GreptimeDb {
 
     pub async fn truncate_all(&self) -> Result<()> {
         for table in MetricTable::all() {
-            self.execute(&format!("TRUNCATE TABLE {}", table.name()))
+            self.execute(&format!("TRUNCATE TABLE {}", table.as_str()))
                 .await?;
         }
         Ok(())
@@ -182,24 +166,7 @@ impl GreptimeDb {
             "SELECT ts, equipment_id, param, avg_value, min_value, max_value, ucl, lcl
              FROM spc_downsample ORDER BY ts DESC LIMIT {limit}"
         );
-        let rows = self.execute(&sql).await.unwrap_or_default();
-        let mut buckets: Vec<SpcBucket> = rows
-            .into_iter()
-            .filter_map(|row| {
-                Some(SpcBucket {
-                    ts: timestamp_text(row.get("ts")?)?,
-                    equipment_id: row.get("equipment_id")?.as_str()?.to_owned(),
-                    param: row.get("param")?.as_str()?.to_owned(),
-                    avg_value: number(row.get("avg_value")?)?,
-                    min_value: number(row.get("min_value")?)?,
-                    max_value: number(row.get("max_value")?)?,
-                    ucl: number(row.get("ucl")?)?,
-                    lcl: number(row.get("lcl")?)?,
-                })
-            })
-            .collect();
-        buckets.reverse();
-        Ok(buckets)
+        Ok(buckets_from_rows(&self.execute(&sql).await?))
     }
 
     /// Raw samples, used when the flow has not produced a bucket yet.
@@ -209,29 +176,12 @@ impl GreptimeDb {
                     `value` AS max_value, ucl, lcl
              FROM spc_sample ORDER BY ts DESC LIMIT {limit}"
         );
-        let rows = self.execute(&sql).await.unwrap_or_default();
-        let mut buckets: Vec<SpcBucket> = rows
-            .into_iter()
-            .filter_map(|row| {
-                Some(SpcBucket {
-                    ts: timestamp_text(row.get("ts")?)?,
-                    equipment_id: row.get("equipment_id")?.as_str()?.to_owned(),
-                    param: row.get("param")?.as_str()?.to_owned(),
-                    avg_value: number(row.get("avg_value")?)?,
-                    min_value: number(row.get("min_value")?)?,
-                    max_value: number(row.get("max_value")?)?,
-                    ucl: number(row.get("ucl")?)?,
-                    lcl: number(row.get("lcl")?)?,
-                })
-            })
-            .collect();
-        buckets.reverse();
-        Ok(buckets)
+        Ok(buckets_from_rows(&self.execute(&sql).await?))
     }
 
     pub async fn counts_for(&self, table: MetricTable) -> Result<i64> {
         let rows = self
-            .execute(&format!("SELECT count(*) AS c FROM {}", table.name()))
+            .execute(&format!("SELECT count(*) AS c FROM {}", table.as_str()))
             .await?;
         Ok(rows
             .first()
@@ -246,7 +196,31 @@ impl GreptimeDb {
     }
 }
 
-/// GreptimeDB returns `TIMESTAMP` columns as epoch milliseconds; the API hands
+/// One SPC row as the chart consumes it.
+///
+/// The flow's sink and the raw sample table are projected onto the same
+/// columns by their queries, so both go through this one shape.
+fn bucket_from_row(row: &serde_json::Map<String, Value>) -> Option<SpcBucket> {
+    Some(SpcBucket {
+        ts: timestamp_text(row.get("ts")?)?,
+        equipment_id: row.get("equipment_id")?.as_str()?.to_owned(),
+        param: row.get("param")?.as_str()?.to_owned(),
+        avg_value: number(row.get("avg_value")?)?,
+        min_value: number(row.get("min_value")?)?,
+        max_value: number(row.get("max_value")?)?,
+        ucl: number(row.get("ucl")?)?,
+        lcl: number(row.get("lcl")?)?,
+    })
+}
+
+/// The queries return newest first; the chart reads left to right.
+fn buckets_from_rows(rows: &[serde_json::Map<String, Value>]) -> Vec<SpcBucket> {
+    let mut buckets: Vec<SpcBucket> = rows.iter().filter_map(bucket_from_row).collect();
+    buckets.reverse();
+    buckets
+}
+
+/// `GreptimeDB` returns `TIMESTAMP` columns as epoch milliseconds; the API hands
 /// the dashboard an RFC 3339 string either way.
 fn timestamp_text(value: &Value) -> Option<String> {
     if let Some(text) = value.as_str() {
@@ -273,7 +247,7 @@ fn rows_to_objects(body: &Value) -> Vec<serde_json::Map<String, Value>> {
                 .get("schema")
                 .and_then(|schema| schema.get("column_schemas"))
                 .and_then(Value::as_array)
-                .map(|schemas| {
+                .map_or_default(|schemas| {
                     schemas
                         .iter()
                         .filter_map(|schema| {
@@ -283,8 +257,7 @@ fn rows_to_objects(body: &Value) -> Vec<serde_json::Map<String, Value>> {
                                 .map(str::to_owned)
                         })
                         .collect()
-                })
-                .unwrap_or_default();
+                });
             let Some(rows) = records.get("rows").and_then(Value::as_array) else {
                 continue;
             };
@@ -307,14 +280,19 @@ fn rows_to_objects(body: &Value) -> Vec<serde_json::Map<String, Value>> {
 }
 
 fn urlencode(input: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(input.len() + 16);
     for byte in input.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char)
+                out.push(char::from(byte));
             }
             b' ' => out.push('+'),
-            other => out.push_str(&format!("%{other:02X}")),
+            other => {
+                out.push('%');
+                out.push(char::from(HEX[usize::from(other >> 4)]));
+                out.push(char::from(HEX[usize::from(other & 0x0f)]));
+            }
         }
     }
     out

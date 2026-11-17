@@ -1,7 +1,7 @@
 //! The oxide-fab dashboard, written entirely in Rust for nsh.
 //!
 //! One screen shows the four process steps, the tool lights, the lots and
-//! their wafer genealogy, the SPC chart from GreptimeDB's downsampled series,
+//! their wafer genealogy, the SPC chart from `GreptimeDB`'s downsampled series,
 //! the backup/restore drill results and the outbox backlog during a chaos run.
 //!
 //! Data flow: an initial `/api/snapshot` seeds every signal; afterwards the
@@ -22,7 +22,7 @@ use serde::de::DeserializeOwned;
 
 use data::{
     BackupStatus, ChaosSample, LotDetail, LotView, RestoreStatus, SecsStatus, Snapshot, SpcBucket,
-    StepView, ToolView, clock_text, duration_text,
+    StepView, ToolView, WaferGenealogy, clock_text, duration_text,
 };
 
 const FONT: &str = "WenQuanYi Micro Hei, Noto Sans CJK SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif";
@@ -58,6 +58,14 @@ pub struct Ui {
     detail: Signal<Option<LotDetail>>,
     selected_wafer: Signal<Option<String>>,
     greptime_ok: Signal<bool>,
+}
+
+// The fields are framework handles with no `Debug` of their own; naming the
+// type is all a log line needs.
+impl std::fmt::Debug for Ui {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Ui").finish_non_exhaustive()
+    }
 }
 
 impl Ui {
@@ -158,7 +166,7 @@ fn bootstrap(ui: Ui) {
             // Aggregates (queues, SPC, backups) are reconciled less often than
             // the per-tool event stream.
             ticks += 1;
-            if ticks % 8 == 0 {
+            if ticks.is_multiple_of(8) {
                 let _ = load_snapshot(ui).await;
             }
         }
@@ -167,9 +175,9 @@ fn bootstrap(ui: Ui) {
 
 async fn load_snapshot(ui: Ui) -> Result<(), String> {
     let snapshot: Snapshot = get_json("/api/snapshot").await?;
-    ui.steps.set(snapshot.steps);
-    ui.tools.set(snapshot.equipment);
-    ui.lots.set(snapshot.lots);
+    ui.steps.set(snapshot.sim.steps);
+    ui.tools.set(snapshot.sim.equipment);
+    ui.lots.set(snapshot.sim.lots);
     ui.spc.set(snapshot.spc);
     ui.spc_source.set(snapshot.spc_source);
     ui.chaos.set(snapshot.chaos);
@@ -247,8 +255,6 @@ fn load_lot(ui: Ui, lot_id: String) {
 
 fn header(ui: Ui) -> impl IntoElement {
     let connected = ui.connected;
-    let running = ui.running;
-    let speed = ui.speed;
     view()
         .w_full()
         .px_4()
@@ -303,82 +309,87 @@ fn header(ui: Ui) -> impl IntoElement {
                 .text_size(px(12.0))
                 .text_color(move || theme().muted_foreground),
         )
+        .child(playback_controls(ui))
+}
+
+/// Play/pause, single step and the speed stepper.
+fn playback_controls(ui: Ui) -> impl IntoElement {
+    let running = ui.running;
+    let speed = ui.speed;
+    view()
+        .flex_row()
+        .items_center()
+        .gap_1()
         .child(
-            view()
-                .flex_row()
-                .items_center()
-                .gap_1()
+            button()
+                .px(px(10.0))
+                .py(px(6.0))
+                .rounded(px(8.0))
+                .bg(move || theme().primary)
+                .active(|style| style.opacity(0.7))
+                .on_press(move || {
+                    post(
+                        ui,
+                        if running.get() {
+                            "/api/sim/pause"
+                        } else {
+                            "/api/sim/play"
+                        },
+                        "",
+                    );
+                })
                 .child(
-                    button()
-                        .px(px(10.0))
-                        .py(px(6.0))
-                        .rounded(px(8.0))
-                        .bg(move || theme().primary)
-                        .active(|style| style.opacity(0.7))
-                        .on_press(move || {
-                            post(
-                                ui,
-                                if running.get() {
-                                    "/api/sim/pause"
-                                } else {
-                                    "/api/sim/play"
-                                },
-                                "",
-                            )
-                        })
-                        .child(
-                            text(move || {
-                                if running.get() {
-                                    "暂停".to_owned()
-                                } else {
-                                    "运行".to_owned()
-                                }
-                            })
-                            .text_size(px(12.0))
-                            .text_color(move || theme().primary_foreground),
-                        ),
-                )
-                .child(
-                    button()
-                        .px(px(10.0))
-                        .py(px(6.0))
-                        .rounded(px(8.0))
-                        .bg(move || theme().muted)
-                        .active(|style| style.opacity(0.7))
-                        .on_press(move || post(ui, "/api/sim/step", ""))
-                        .child(text("单步").text_size(px(12.0))),
-                )
-                .child(
-                    button()
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .rounded(px(8.0))
-                        .bg(move || theme().muted)
-                        .active(|style| style.opacity(0.7))
-                        .on_press(move || {
-                            let next = (speed.get() / 2.0).max(0.5);
-                            post(ui, &format!("/api/sim/speed/{next}"), "")
-                        })
-                        .child(text("−").text_size(px(12.0))),
-                )
-                .child(
-                    text(move || format!("×{:.0}", speed.get()))
-                        .text_size(px(12.0))
-                        .text_color(move || theme().muted_foreground),
-                )
-                .child(
-                    button()
-                        .px(px(8.0))
-                        .py(px(6.0))
-                        .rounded(px(8.0))
-                        .bg(move || theme().muted)
-                        .active(|style| style.opacity(0.7))
-                        .on_press(move || {
-                            let next = (speed.get() * 2.0).min(100.0);
-                            post(ui, &format!("/api/sim/speed/{next}"), "")
-                        })
-                        .child(text("+").text_size(px(12.0))),
+                    text(move || {
+                        if running.get() {
+                            "暂停".to_owned()
+                        } else {
+                            "运行".to_owned()
+                        }
+                    })
+                    .text_size(px(12.0))
+                    .text_color(move || theme().primary_foreground),
                 ),
+        )
+        .child(
+            button()
+                .px(px(10.0))
+                .py(px(6.0))
+                .rounded(px(8.0))
+                .bg(move || theme().muted)
+                .active(|style| style.opacity(0.7))
+                .on_press(move || post(ui, "/api/sim/step", ""))
+                .child(text("单步").text_size(px(12.0))),
+        )
+        .child(
+            button()
+                .px(px(8.0))
+                .py(px(6.0))
+                .rounded(px(8.0))
+                .bg(move || theme().muted)
+                .active(|style| style.opacity(0.7))
+                .on_press(move || {
+                    let next = (speed.get() / 2.0).max(0.5);
+                    post(ui, &format!("/api/sim/speed/{next}"), "");
+                })
+                .child(text("−").text_size(px(12.0))),
+        )
+        .child(
+            text(move || format!("×{:.0}", speed.get()))
+                .text_size(px(12.0))
+                .text_color(move || theme().muted_foreground),
+        )
+        .child(
+            button()
+                .px(px(8.0))
+                .py(px(6.0))
+                .rounded(px(8.0))
+                .bg(move || theme().muted)
+                .active(|style| style.opacity(0.7))
+                .on_press(move || {
+                    let next = (speed.get() * 2.0).min(100.0);
+                    post(ui, &format!("/api/sim/speed/{next}"), "");
+                })
+                .child(text("+").text_size(px(12.0))),
         )
 }
 
@@ -484,8 +495,7 @@ fn state_color(state: &str) -> u32 {
     match state {
         "completed" => GREEN,
         "processing" => BLUE,
-        "on_hold" => AMBER,
-        "split" | "merged" => AMBER,
+        "on_hold" | "split" | "merged" => AMBER,
         _ => 0x94a3b8,
     }
 }
@@ -654,8 +664,7 @@ fn lots_panel(ui: Ui) -> impl IntoElement {
                                     lot.get()
                                         .hold_reason
                                         .clone()
-                                        .map(|reason| format!("HOLD: {reason}"))
-                                        .unwrap_or_default()
+                                        .map_or_default(|reason| format!("HOLD: {reason}"))
                                 })
                                 .text_size(px(11.0))
                                 .text_color(rgb(AMBER)),
@@ -726,70 +735,71 @@ fn wafer_grid(ui: Ui, detail: LotDetail) -> impl IntoElement {
             },
         )))
         .child(dynamic(move || {
-            let Some(wafer_id) = selected_wafer.get() else {
-                return None;
-            };
+            let wafer_id = selected_wafer.get()?;
             let entry = detail
                 .genealogy
                 .iter()
                 .find(|entry| entry.wafer_id == wafer_id)?;
-            let mut rows: Vec<AnyElement> = Vec::new();
-            rows.push(
-                text(format!(
-                    "{}  {} · 返工 {} 次{}",
-                    entry.wafer_id,
-                    entry.state,
-                    entry.rework_count,
-                    entry
-                        .defect_info
-                        .as_ref()
-                        .map(|info| format!(" · {info}"))
-                        .unwrap_or_default()
-                ))
-                .text_size(px(11.0))
-                .text_color(move || theme().muted_foreground)
-                .into_element(),
-            );
-            for step in &entry.steps {
-                rows.push(
-                    view()
-                        .flex_row()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            text(format!("S{}", step.step_no))
-                                .text_size(px(11.0))
-                                .font_weight(FontWeight::SEMIBOLD),
-                        )
-                        .child(
-                            text(step.recipe_id.clone())
-                                .text_size(px(11.0))
-                                .text_color(move || theme().muted_foreground),
-                        )
-                        .child(text(step.equipment_id.clone()).text_size(px(11.0)))
-                        .child(
-                            text(if step.track_out_ms > 0 {
-                                duration_text(step.duration_ms)
-                            } else {
-                                "进行中".to_owned()
-                            })
-                            .text_size(px(11.0))
-                            .text_color(move || theme().muted_foreground),
-                        )
-                        .child(
-                            text(
-                                step.measured
-                                    .map(|value| format!("{value:.2} nm"))
-                                    .unwrap_or_default(),
-                            )
-                            .text_size(px(11.0))
-                            .text_color(rgb(BLUE)),
-                        )
-                        .into_element(),
-                );
-            }
-            Some(view().gap_1().pt_1().child(rows).into_element())
+            Some(genealogy_timeline(entry).into_element())
         }))
+}
+
+/// One wafer's step timeline, as the panel shows it.
+fn genealogy_timeline(entry: &WaferGenealogy) -> impl IntoElement {
+    let mut rows: Vec<AnyElement> = Vec::with_capacity(entry.steps.len() + 1);
+    rows.push(
+        text(format!(
+            "{}  {} · 返工 {} 次{}",
+            entry.wafer_id,
+            entry.state,
+            entry.rework_count,
+            entry
+                .defect_info
+                .as_ref()
+                .map_or_default(|info| format!(" · {info}"))
+        ))
+        .text_size(px(11.0))
+        .text_color(move || theme().muted_foreground)
+        .into_element(),
+    );
+    for step in &entry.steps {
+        rows.push(
+            view()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .child(
+                    text(format!("S{}", step.step_no))
+                        .text_size(px(11.0))
+                        .font_weight(FontWeight::SEMIBOLD),
+                )
+                .child(
+                    text(step.recipe_id.clone())
+                        .text_size(px(11.0))
+                        .text_color(move || theme().muted_foreground),
+                )
+                .child(text(step.equipment_id.clone()).text_size(px(11.0)))
+                .child(
+                    text(if step.track_out_ms > 0 {
+                        duration_text(step.duration_ms)
+                    } else {
+                        "进行中".to_owned()
+                    })
+                    .text_size(px(11.0))
+                    .text_color(move || theme().muted_foreground),
+                )
+                .child(
+                    text(
+                        step.measured
+                            .map_or_default(|value| format!("{value:.2} nm")),
+                    )
+                    .text_size(px(11.0))
+                    .text_color(rgb(BLUE)),
+                )
+                .into_element(),
+        );
+    }
+    view().gap_1().pt_1().child(rows)
 }
 
 fn spc_panel(ui: Ui) -> impl IntoElement {
@@ -825,8 +835,8 @@ fn spc_panel(ui: Ui) -> impl IntoElement {
 }
 
 fn spc_chart(buckets: Vec<SpcBucket>) -> impl IntoElement {
-    let ucl = buckets.last().map(|bucket| bucket.ucl).unwrap_or(103.0);
-    let lcl = buckets.last().map(|bucket| bucket.lcl).unwrap_or(97.0);
+    let ucl = buckets.last().map_or(103.0, |bucket| bucket.ucl);
+    let lcl = buckets.last().map_or(97.0, |bucket| bucket.lcl);
     let high = buckets
         .iter()
         .map(|bucket| bucket.max_value.max(bucket.ucl))
@@ -882,7 +892,7 @@ fn spc_chart(buckets: Vec<SpcBucket>) -> impl IntoElement {
                     text(move || {
                         format!(
                             "最近 {:.2} nm",
-                            buckets.last().map(|bucket| bucket.avg_value).unwrap_or(0.0)
+                            buckets.last().map_or(0.0, |bucket| bucket.avg_value)
                         )
                     })
                     .text_size(px(10.0)),
@@ -958,7 +968,7 @@ fn recovery_panel(ui: Ui) -> impl IntoElement {
                         .text_color(move || theme().muted_foreground),
                     ),
             )
-            .child(dynamic(move || backlog_chart(chaos.get()).into_element())),
+            .child(dynamic(move || backlog_chart(&chaos.get()).into_element())),
     )
 }
 
@@ -982,13 +992,14 @@ fn backlog_summary(samples: &[ChaosSample]) -> (i64, Option<i64>) {
     (peak, drained)
 }
 
-fn backlog_chart(samples: Vec<ChaosSample>) -> impl IntoElement {
+fn backlog_chart(samples: &[ChaosSample]) -> impl IntoElement {
     let peak = samples
         .iter()
         .map(|sample| sample.pending)
         .max()
         .unwrap_or(1)
         .max(1);
+    let items = samples.to_vec();
     view()
         .h(px(48.0))
         .flex_row()
@@ -998,10 +1009,7 @@ fn backlog_chart(samples: Vec<ChaosSample>) -> impl IntoElement {
         .rounded(px(8.0))
         .bg(move || theme().muted)
         .child(each(
-            {
-                let items = samples.clone();
-                move || items.clone()
-            },
+            move || items.clone(),
             |sample| sample.at_ms,
             move |sample, _| {
                 let height = (sample.get().pending as f32 / peak as f32 * 36.0).max(1.0);
@@ -1116,8 +1124,7 @@ fn secs_panel(ui: Ui) -> impl IntoElement {
                         status
                             .last_error
                             .as_ref()
-                            .map(|error| format!(" · {error}"))
-                            .unwrap_or_default()
+                            .map_or_default(|error| format!(" · {error}"))
                     ))
                     .text_size(px(11.0))
                     .text_color(move || theme().muted_foreground),
