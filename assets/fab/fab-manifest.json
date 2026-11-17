@@ -1,0 +1,904 @@
+{
+  "schema": 1,
+  "model": "oxide-fab.glb",
+  "coordinate_system": "gltf-y-up",
+  "units": "meters",
+  "floor": {
+    "half_x": 22.0,
+    "half_z": 13.0
+  },
+  "bands": [
+    {
+      "step_no": 1,
+      "name": "clean",
+      "z": 8.5,
+      "y": 0.35,
+      "half_x": 20.0
+    },
+    {
+      "step_no": 2,
+      "name": "litho",
+      "z": 3.0,
+      "y": 0.35,
+      "half_x": 20.0
+    },
+    {
+      "step_no": 3,
+      "name": "etch",
+      "z": -2.5,
+      "y": 0.35,
+      "half_x": 20.0
+    },
+    {
+      "step_no": 4,
+      "name": "metrology",
+      "z": -8.0,
+      "y": 0.35,
+      "half_x": 20.0
+    }
+  ],
+  "static": [
+    {
+      "node": "factory.floor",
+      "role": "floor"
+    },
+    {
+      "node": "factory.band.1",
+      "role": "process_band",
+      "step_no": 1
+    },
+    {
+      "node": "factory.band.2",
+      "role": "process_band",
+      "step_no": 2
+    },
+    {
+      "node": "factory.band.3",
+      "role": "process_band",
+      "step_no": 3
+    },
+    {
+      "node": "factory.band.4",
+      "role": "process_band",
+      "step_no": 4
+    },
+    {
+      "node": "factory.amhs.0",
+      "role": "amhs_rail"
+    },
+    {
+      "node": "factory.amhs.1",
+      "role": "amhs_rail"
+    },
+    {
+      "node": "factory.amhs.2",
+      "role": "amhs_rail"
+    },
+    {
+      "node": "factory.amhs.3",
+      "role": "amhs_rail"
+    },
+    {
+      "node": "factory.amhs.post.0",
+      "role": "amhs_post"
+    },
+    {
+      "node": "factory.amhs.post.1",
+      "role": "amhs_post"
+    },
+    {
+      "node": "factory.amhs.post.2",
+      "role": "amhs_post"
+    },
+    {
+      "node": "factory.amhs.post.3",
+      "role": "amhs_post"
+    }
+  ],
+  "tools": [
+    {
+      "equipment_id": "CLN-01",
+      "kind": "clean",
+      "root": "tool.CLN-01",
+      "band": 1,
+      "anchor": [
+        -13.0,
+        0.35,
+        8.5
+      ],
+      "parts": [
+        {
+          "node": "tool.CLN-01.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              -15.1,
+              0.35,
+              7.75
+            ],
+            "max": [
+              -10.9,
+              2.95,
+              9.25
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-01.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -13.0,
+              2.7,
+              7.95
+            ],
+            "max": [
+              -11.2,
+              4.3,
+              9.05
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-01.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              -15.3,
+              1.1,
+              9.1
+            ],
+            "max": [
+              -13.7,
+              2.3,
+              10.0
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-01.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              -11.85,
+              2.225,
+              9.4
+            ],
+            "max": [
+              -10.95,
+              2.475,
+              10.3
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-01.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -12.275,
+              4.2,
+              8.325
+            ],
+            "max": [
+              -11.925,
+              5.3,
+              8.675
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "equipment_id": "CLN-02",
+      "kind": "clean",
+      "root": "tool.CLN-02",
+      "band": 1,
+      "anchor": [
+        -1.0,
+        0.35,
+        8.5
+      ],
+      "parts": [
+        {
+          "node": "tool.CLN-02.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              -3.1,
+              0.35,
+              7.75
+            ],
+            "max": [
+              1.1,
+              2.95,
+              9.25
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-02.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -1.0,
+              2.7,
+              7.95
+            ],
+            "max": [
+              0.8,
+              4.3,
+              9.05
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-02.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              -3.3,
+              1.1,
+              9.1
+            ],
+            "max": [
+              -1.7,
+              2.3,
+              10.0
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-02.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              0.15,
+              2.225,
+              9.4
+            ],
+            "max": [
+              1.05,
+              2.475,
+              10.3
+            ]
+          }
+        },
+        {
+          "node": "tool.CLN-02.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -0.275,
+              4.2,
+              8.325
+            ],
+            "max": [
+              0.075,
+              5.3,
+              8.675
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "equipment_id": "LIT-01",
+      "kind": "litho",
+      "root": "tool.LIT-01",
+      "band": 2,
+      "anchor": [
+        7.0,
+        0.35,
+        3.0
+      ],
+      "parts": [
+        {
+          "node": "tool.LIT-01.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              4.2,
+              0.35,
+              2.0
+            ],
+            "max": [
+              9.8,
+              3.15,
+              4.0
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-01.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              6.4,
+              3.0,
+              1.8
+            ],
+            "max": [
+              8.8,
+              4.9,
+              4.2
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-01.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              4.1,
+              1.15,
+              3.7
+            ],
+            "max": [
+              5.9,
+              2.35,
+              4.7
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-01.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              8.7,
+              2.425,
+              4.05
+            ],
+            "max": [
+              9.7,
+              2.675,
+              5.05
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-01.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              7.4,
+              4.75,
+              2.8
+            ],
+            "max": [
+              7.8,
+              5.95,
+              3.2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "equipment_id": "LIT-02",
+      "kind": "litho",
+      "root": "tool.LIT-02",
+      "band": 2,
+      "anchor": [
+        16.0,
+        0.35,
+        3.0
+      ],
+      "parts": [
+        {
+          "node": "tool.LIT-02.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              13.2,
+              0.35,
+              2.0
+            ],
+            "max": [
+              18.8,
+              3.15,
+              4.0
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-02.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              15.4,
+              3.0,
+              1.8
+            ],
+            "max": [
+              17.8,
+              4.9,
+              4.2
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-02.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              13.1,
+              1.15,
+              3.7
+            ],
+            "max": [
+              14.9,
+              2.35,
+              4.7
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-02.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              17.7,
+              2.425,
+              4.05
+            ],
+            "max": [
+              18.7,
+              2.675,
+              5.05
+            ]
+          }
+        },
+        {
+          "node": "tool.LIT-02.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              16.4,
+              4.75,
+              2.8
+            ],
+            "max": [
+              16.8,
+              5.95,
+              3.2
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "equipment_id": "ETC-01",
+      "kind": "etch",
+      "root": "tool.ETC-01",
+      "band": 3,
+      "anchor": [
+        -7.0,
+        0.35,
+        -2.5
+      ],
+      "parts": [
+        {
+          "node": "tool.ETC-01.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              -9.3,
+              0.35,
+              -3.35
+            ],
+            "max": [
+              -4.7,
+              3.05,
+              -1.65
+            ]
+          }
+        },
+        {
+          "node": "tool.ETC-01.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -7.4,
+              2.9,
+              -3.5
+            ],
+            "max": [
+              -5.4,
+              4.6,
+              -1.5
+            ]
+          }
+        },
+        {
+          "node": "tool.ETC-01.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              -9.5,
+              1.1,
+              -1.85
+            ],
+            "max": [
+              -7.9,
+              2.3,
+              -0.95
+            ]
+          }
+        },
+        {
+          "node": "tool.ETC-01.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              -5.65,
+              2.325,
+              -1.55
+            ],
+            "max": [
+              -4.75,
+              2.575,
+              -0.65
+            ]
+          }
+        },
+        {
+          "node": "tool.ETC-01.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              -6.575,
+              4.5,
+              -2.675
+            ],
+            "max": [
+              -6.225,
+              5.6,
+              -2.325
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "equipment_id": "MET-01",
+      "kind": "metrology",
+      "root": "tool.MET-01",
+      "band": 4,
+      "anchor": [
+        7.0,
+        0.35,
+        -8.0
+      ],
+      "parts": [
+        {
+          "node": "tool.MET-01.body",
+          "part": "body",
+          "explode": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "aabb": {
+            "min": [
+              5.0,
+              0.4,
+              -8.8
+            ],
+            "max": [
+              9.0,
+              2.8,
+              -7.2
+            ]
+          }
+        },
+        {
+          "node": "tool.MET-01.chamber",
+          "part": "chamber",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              6.9,
+              2.6,
+              -8.5
+            ],
+            "max": [
+              8.5,
+              3.9,
+              -7.5
+            ]
+          }
+        },
+        {
+          "node": "tool.MET-01.loadport",
+          "part": "loadport",
+          "explode": [
+            -0.15,
+            0.15,
+            1.0
+          ],
+          "aabb": {
+            "min": [
+              4.9,
+              1.05,
+              -7.45
+            ],
+            "max": [
+              6.3,
+              2.05,
+              -6.65
+            ]
+          }
+        },
+        {
+          "node": "tool.MET-01.panel",
+          "part": "panel",
+          "explode": [
+            0.55,
+            0.55,
+            -0.55
+          ],
+          "aabb": {
+            "min": [
+              8.1,
+              2.14,
+              -7.15
+            ],
+            "max": [
+              8.9,
+              2.36,
+              -6.35
+            ]
+          }
+        },
+        {
+          "node": "tool.MET-01.exhaust",
+          "part": "exhaust",
+          "explode": [
+            0.1,
+            1.0,
+            0.1
+          ],
+          "aabb": {
+            "min": [
+              7.56,
+              3.9,
+              -8.14
+            ],
+            "max": [
+              7.84,
+              4.8,
+              -7.86
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "templates": {
+    "foup": [
+      {
+        "node": "foup.template",
+        "role": "body",
+        "aabb": {
+          "min": [
+            -0.525,
+            0.0,
+            -0.475
+          ],
+          "max": [
+            0.525,
+            1.05,
+            0.475
+          ]
+        }
+      },
+      {
+        "node": "foup.template.handle",
+        "role": "handle",
+        "aabb": {
+          "min": [
+            -0.275,
+            1.295,
+            0.46
+          ],
+          "max": [
+            0.275,
+            1.395,
+            0.54
+          ]
+        }
+      }
+    ],
+    "wafer": [
+      {
+        "node": "wafer.template",
+        "role": "wafer",
+        "aabb": {
+          "min": [
+            -0.35,
+            0.013,
+            -0.35
+          ],
+          "max": [
+            0.35,
+            0.027,
+            0.35
+          ]
+        }
+      }
+    ]
+  },
+  "amhs": {
+    "points": [
+      [
+        -19.0,
+        -11.0
+      ],
+      [
+        19.0,
+        -11.0
+      ],
+      [
+        19.0,
+        11.0
+      ],
+      [
+        -19.0,
+        11.0
+      ]
+    ],
+    "loop": true,
+    "height": 1.15,
+    "stops": {
+      "1": [
+        19.0,
+        11.0
+      ],
+      "2": [
+        -19.0,
+        11.0
+      ],
+      "3": [
+        19.0,
+        -11.0
+      ],
+      "4": [
+        -19.0,
+        -11.0
+      ]
+    }
+  },
+  "explode_distance": 2.0,
+  "pick_padding": 0.08
+}

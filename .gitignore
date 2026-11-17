@@ -11,3 +11,6 @@ artifacts/*
 !artifacts/.gitkeep
 .env
 .DS_Store
+
+# Desktop packages
+/dist
