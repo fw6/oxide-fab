@@ -1,0 +1,25 @@
+crates/oxide-scene/src/graph.rs
+  s_7a68cbf16bb9fc::t_70988c21c5bde4 147
+Cargo.toml
+  s_7a68cbf16bb9fc::t_9f00cad9c21bd6 38-39
+Dockerfile
+  s_7a68cbf16bb9fc::t_9f00cad9c21bd6 41
+.github/workflows/ci.yml
+  s_7a68cbf16bb9fc::t_9f00cad9c21bd6 29,78,129,323,339,374
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "ff033662cc0d6bd67636d7cee62def5048cc232e",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
