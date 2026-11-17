@@ -1,5 +1,7 @@
 [workspace]
-resolver = "2"
+# Edition 2024's resolver. A virtual workspace does not infer it from its
+# members, so it has to be named here.
+resolver = "3"
 members = [
     "crates/oxide-core",
     "crates/oxide-sim",
