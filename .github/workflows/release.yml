@@ -104,7 +104,7 @@ jobs:
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           Add-Content -Path $env:GITHUB_ENV -Value "ASSET=dist/$name.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: oxide-server-${{ matrix.target }}
           path: ${{ env.ASSET }}
@@ -209,7 +209,7 @@ jobs:
           TXT
           tar -C dist -czf "dist/oxide-ui-${VERSION}-tui.tar.gz" tui
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: oxide-ui-packages
           path: |
@@ -217,7 +217,7 @@ jobs:
             dist/oxide-ui-*-tui.tar.gz
           if-no-files-found: error
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: nsh-tui-tests
           path: artifacts/nsh-tui-tests.xml
@@ -244,7 +244,7 @@ jobs:
           cat SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -ge 5
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: checksums
           path: dist/SHA256SUMS.txt

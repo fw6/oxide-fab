@@ -113,7 +113,7 @@ jobs:
 
       - name: Upload the nsh test report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: nsh-tests
           path: artifacts/nsh-tests.xml
@@ -175,7 +175,7 @@ jobs:
 
       - name: Upload the chaos report and restore evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: oxide-evidence
           path: |
