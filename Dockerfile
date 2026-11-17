@@ -38,7 +38,7 @@ RUN touch crates/*/src/lib.rs bins/oxide-server/src/main.rs \
     && cargo build --release --target "$(cat /rust-target)" -p oxide-server \
     && cp "target/$(cat /rust-target)/release/oxide" /oxide
 
-FROM busybox:1.36
+FROM busybox:1.38
 COPY --from=build /oxide /oxide
 COPY config /app/config
 COPY migrations /app/migrations
