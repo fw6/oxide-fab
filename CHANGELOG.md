@@ -4,9 +4,52 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.2.0] — 2026-11-17
+
+### Added
+
+- **Desktop 3D workbench**: a wgpu viewport in an nsh native component
+  (`#[native_components(macos|linux|windows)]`, registered by the app's own
+  crate), fed by `oxide-render`; Blender-exported GLB plus a manifest that names
+  every node, part, picking box and explosion direction.
+- `oxide-scene`: manifest contract, AMHS layout, orbit camera (ortho and
+  perspective), CPU ray/AABB picking and the L0–L3 scene graph; no GPU, fully
+  unit-tested.
+- `oxide-render`: glTF loading with baked node transforms, mesh and line
+  pipelines, offscreen frames and `oxide-render-evidence` (four levels, an
+  orthographic frame and an adapter report; `--validate-only` for assets).
+- Read-only API: `GET /api/analytics` (recipes, Q-time, alarms, KPI with
+  formulas, plan vs actual), `GET /api/monitor`, `GET /api/events/{event_id}`
+  (event → outbox → GreptimeDB rows) and `POST /api/what-if` (isolated replay
+  of a snapshot copy).
+- Dispatch decisions recorded by the simulator (`rule`, priority, queue
+  position, qualified tools) and exposed in the snapshot; `DispatchRule` adds
+  FIFO for the what-if.
+- A five-domain workbench UI with a guided demo, light/dark themes, reduced
+  motion, label density, JSON exports and a local-compose button; all writes
+  are labelled 演示触发 and go through `oxide-api`.
+- Three native packages (macOS `.app`, Linux directory, Windows directory and
+  Inno Setup installer when available) and a three-OS CI matrix that packages,
+  runs and screenshots each, plus software-rendering evidence (lavapipe, WARP).
+- ADRs 005–008 and `docs/design/` (client features, four visual proposals).
 
 ### Changed
+
+- `route_step` gains `qtime_ms` in the scenario (no migration); Q-time is
+  computed from `track_out → track_in` gaps.
+- Phase-1 acceptance item 2 is re-scoped: `nsh test` plus three desktop
+  packages replace the web/TUI artefacts (ADR 005).
+- `minimum system version`, window size, icon and app version come from
+  `nsh.json`.
+
+### Removed
+
+- The web and TUI packages and their release jobs; the desktop application is
+  the only UI deliverable.
+- The TSX shell test: the app has no TSX entry, so `nsh test` now builds only
+  the Rust test host (no QuickJS in the app or its tests).
+
+### Changed (phase-1 review carry-over)
 
 - The workspace enables the Pragmatic Rust Guidelines' recommended lint set
   (all clippy groups plus the rust lints) and CI enforces it with

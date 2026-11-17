@@ -7,6 +7,12 @@
 
 每一行都是实际运行的结果；`artifacts/` 下的日志是运行输出，未被编辑。
 
+> **阶段 2 重跑（v0.2.0，2026-11-17）**：这 12 项已在桌面工作台上重新跑通，
+> 见 [acceptance-phase2.md](acceptance-phase2.md) §3。第 2 项的交付目标按
+> [ADR 005](decisions/005-phase2-desktop-scope.md) 由 web/TUI 两个包改为
+> macOS / Windows / Linux 三个原生包；其余 11 项口径不变。下表是 v0.1.2 的
+> 历史记录，保留作对照。
+
 | # | 验收项 | 实际命令 | 结果 | 证据 |
 |---|---|---|---|---|
 | 1 | fmt / clippy / workspace 测试 | `cargo fmt --all -- --check`；`cargo clippy --all-targets --all-features -- -D warnings`；`cargo test --workspace` | 通过：fmt 干净、clippy 无告警、29 passed / 0 failed（core 19、sim 6、store 3、secs 1） | `artifacts/accept-1-lint-test.log` |
