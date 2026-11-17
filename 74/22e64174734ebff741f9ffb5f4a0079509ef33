@@ -1,0 +1,29 @@
+crates/oxide-api/src/dto.rs
+  s_d7695dc4fe1122::t_feb39ec9d1148f 6-7,164-197
+  s_d7695dc4fe1122::t_ce1b8a2e938115 163
+crates/oxide-api/Cargo.toml
+  s_d7695dc4fe1122::t_caf3dec2cb7c52 10-11
+crates/oxide-api/src/handlers.rs
+  s_d7695dc4fe1122::t_f4197c28f9f4b0 25-27,123-125,158-159,185-198,293-296
+  s_d7695dc4fe1122::t_236a850e71667f 228,268-272
+  s_d7695dc4fe1122::t_feb39ec9d1148f 24,71-76,116-117,122,126-153,155-157,160-184,199-227,229-267,273-292,297-327
+  s_d7695dc4fe1122::t_ce1b8a2e938115 154
+crates/oxide-api/src/lib.rs
+  s_d7695dc4fe1122::t_236a850e71667f 44,68-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "7422e64174734ebff741f9ffb5f4a0079509ef33",
+  "prompts": {},
+  "sessions": {
+    "s_d7695dc4fe1122": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_0c0e2838-da28-49df-be4c-f58165f7e7db",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
