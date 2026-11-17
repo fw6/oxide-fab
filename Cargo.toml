@@ -54,3 +54,17 @@ uuid = { version = "1", features = ["v4", "serde"] }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Development artifacts dominate target/ because `debug = 2` (the default) puts
+# full DWARF in every .o and rlib; measured on split-debuginfo=unpacked here,
+# DWARF is 79-88% of an object file's bytes. Dependencies are not what we step
+# through, so drop their DWARF entirely and keep line tables for our own crates
+# only — a panic backtrace still names file and line.
+#
+# To debug into one dependency, override it for a single build:
+#   cargo build --config 'profile.dev.package.sqlx-core.debug=2'
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = false

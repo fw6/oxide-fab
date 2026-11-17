@@ -7,6 +7,15 @@ publish = false
 # The nsh app is its own workspace; nsh builds its runners from this crate.
 [workspace]
 
+# Same artifact-size policy as the root workspace: the nsh crates are
+# dependencies of this workspace, and their DWARF was ~10 GB of
+# target/debug/deps on a full build (88% of the nsh_base objects).
+[profile.dev]
+debug = 1
+
+[profile.dev.package."*"]
+debug = false
+
 [dependencies]
 nsh-core = "0.5.0"
 nsh-base = "0.5.0"
