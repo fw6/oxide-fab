@@ -36,6 +36,10 @@ pub enum SimError {
     Transition(#[from] TransitionError),
     #[error("invalid scenario: {0}")]
     Scenario(#[from] oxide_core::ScenarioError),
+    #[error("no process step runs on tool kind {0}")]
+    UnknownKind(String),
+    #[error("the what-if tool {0} already exists")]
+    DuplicateTool(String),
 }
 
 /// A message the simulated equipment sends to the SECS/GEM host.
@@ -72,6 +76,47 @@ pub enum SecsTrigger {
 pub struct TickOutput {
     pub events: Vec<DomainEvent>,
     pub secs: Vec<SecsTrigger>,
+}
+
+/// How the dispatcher chooses among eligible lots.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DispatchRule {
+    /// Highest priority first, FIFO within a priority (the shipped rule).
+    #[default]
+    PriorityThenFifo,
+    /// Strict FIFO: the head of the queue goes first, whatever its priority.
+    Fifo,
+}
+
+impl DispatchRule {
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            DispatchRule::PriorityThenFifo => "优先级 → FIFO",
+            DispatchRule::Fifo => "FIFO",
+        }
+    }
+}
+
+/// One dispatch decision, with the inputs that produced it.
+///
+/// This is the read model behind "every dispatch shows the rule it hit": the
+/// priority, the queue it came from and the tool that was qualified for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DispatchDecision {
+    pub at_ms: i64,
+    pub lot_id: String,
+    pub step_no: i32,
+    pub equipment_id: String,
+    pub priority: i32,
+    /// Zero-based position in the step's queue when it was picked.
+    pub queue_position: usize,
+    pub queue_len: usize,
+    /// Tools the route step declares qualified for its recipe.
+    pub qualified_tools: Vec<String>,
+    pub recipe_id: String,
+    pub rule: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -163,6 +208,11 @@ pub struct SimState {
     pub running: bool,
     pub speed: f64,
     pub persisted_events: u64,
+    /// The most recent dispatch decisions, newest last. In-memory only: it is
+    /// a view of the log, not a second source of truth, and snapshots carry it
+    /// as a convenience.
+    #[serde(default)]
+    pub dispatch: Vec<DispatchDecision>,
 }
 
 /// The simulator.
@@ -178,6 +228,7 @@ pub struct Simulation {
     pub(crate) state: SimState,
     heap: BinaryHeap<Reverse<Scheduled>>,
     schedule_seq: u64,
+    rule: DispatchRule,
 }
 
 impl Simulation {
@@ -216,6 +267,7 @@ impl Simulation {
             running: true,
             speed: scenario.speed,
             persisted_events: 0,
+            dispatch: Vec::new(),
         };
         let mut sim = Self {
             scenario,
@@ -223,6 +275,7 @@ impl Simulation {
             state,
             heap: BinaryHeap::new(),
             schedule_seq: 0,
+            rule: DispatchRule::default(),
         };
         sim.schedule_release();
         Ok(sim)
@@ -239,7 +292,25 @@ impl Simulation {
             state,
             heap: BinaryHeap::new(),
             schedule_seq: 0,
+            rule: DispatchRule::default(),
         })
+    }
+
+    /// Choose a different dispatch rule (used by the offline what-if).
+    #[must_use]
+    pub fn with_rule(mut self, rule: DispatchRule) -> Self {
+        self.rule = rule;
+        self
+    }
+
+    #[must_use]
+    pub fn rule(&self) -> DispatchRule {
+        self.rule
+    }
+
+    #[must_use]
+    pub fn scenario(&self) -> &Scenario {
+        &self.scenario
     }
 
     #[must_use]
@@ -967,6 +1038,10 @@ impl Simulation {
     /// lot was loaded, or it was skipped for a reason another lot may not hit.
     /// `Break` means this step cannot dispatch anything right now — no idle
     /// qualified tool, or a recipe the fab cannot verify.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one load: pick a tool, verify the recipe, track in, record the decision, schedule the finish"
+    )]
     fn load_lot(
         &mut self,
         step: &oxide_core::model::RouteStep,
@@ -1046,6 +1121,34 @@ impl Simulation {
             runtime.busy_wafers.clone_from(&wanted);
             runtime.busy_until_ms = self.state.now_ms + step.duration_ms;
         }
+        let (queue_position, queue_len) = self.state.queues.get(&step_no).map_or((0, 0), |queue| {
+            (
+                queue
+                    .iter()
+                    .position(|queued| queued == lot_id)
+                    .unwrap_or(0),
+                queue.len(),
+            )
+        });
+        self.state.dispatch.push(DispatchDecision {
+            at_ms: self.state.now_ms,
+            lot_id: lot_id.to_owned(),
+            step_no,
+            equipment_id: equipment_id.clone(),
+            priority: self
+                .state
+                .lots
+                .get(lot_id)
+                .map_or(0, |aggregate| aggregate.lot.priority),
+            queue_position,
+            queue_len,
+            qualified_tools: step.equipment_qualification.clone(),
+            recipe_id: step.recipe_id.clone(),
+            rule: self.rule.label().to_owned(),
+        });
+        if self.state.dispatch.len() > 64 {
+            self.state.dispatch.remove(0);
+        }
         self.dequeue(step_no, lot_id);
         self.schedule(
             self.state.now_ms + step.duration_ms,
@@ -1060,47 +1163,57 @@ impl Simulation {
     }
 
     /// Highest priority first, FIFO within a priority, skipping held, busy and
-    /// fully processed lots.
+    /// fully processed lots. Under [`DispatchRule::Fifo`] the head of the
+    /// queue wins whatever its priority.
     fn pick_lot(&self, step_no: i32) -> Option<String> {
         let queue = self.state.queues.get(&step_no)?;
-        let mut best: Option<(i32, &String)> = None;
-        for lot_id in queue {
-            let Some(aggregate) = self.state.lots.get(lot_id) else {
-                continue;
-            };
+        let eligible = |lot_id: &String| {
+            let aggregate = self.state.lots.get(lot_id)?;
             if aggregate.lot.state != LotState::Queued && aggregate.lot.state != LotState::Waiting {
-                continue;
+                return None;
             }
             if aggregate.lot.current_step != step_no {
-                continue;
+                return None;
             }
             if aggregate
                 .wafers
                 .iter()
                 .any(|w| w.state == WaferState::Processing)
             {
-                continue;
+                return None;
             }
             if aggregate.lot.hold_reason.is_some() {
-                continue;
+                return None;
             }
             if !aggregate
                 .wafers
                 .iter()
                 .any(|w| w.state == WaferState::Queued)
             {
-                continue;
+                return None;
             }
-            // Strictly greater: the first lot of the highest priority wins,
-            // which keeps FIFO order within a priority class.
-            if best
-                .as_ref()
-                .is_none_or(|(priority, _)| aggregate.lot.priority > *priority)
-            {
-                best = Some((aggregate.lot.priority, lot_id));
+            Some(aggregate.lot.priority)
+        };
+        match self.rule {
+            DispatchRule::Fifo => queue
+                .iter()
+                .find(|lot_id| eligible(lot_id).is_some())
+                .cloned(),
+            DispatchRule::PriorityThenFifo => {
+                let mut best: Option<(i32, &String)> = None;
+                for lot_id in queue {
+                    let Some(priority) = eligible(lot_id) else {
+                        continue;
+                    };
+                    // Strictly greater: the first lot of the highest priority
+                    // wins, which keeps FIFO order within a priority class.
+                    if best.as_ref().is_none_or(|(best, _)| priority > *best) {
+                        best = Some((priority, lot_id));
+                    }
+                }
+                best.map(|(_, lot_id)| lot_id.clone())
             }
         }
-        best.map(|(_, lot_id)| lot_id.clone())
     }
 
     fn pick_equipment(&self, step: &oxide_core::model::RouteStep) -> Option<String> {
@@ -1315,6 +1428,8 @@ pub struct SimSnapshot {
     pub equipment: Vec<EquipmentView>,
     pub lots: Vec<LotView>,
     pub persisted_events: u64,
+    /// Newest first, at most 64.
+    pub dispatch: Vec<DispatchDecision>,
 }
 
 impl Simulation {
@@ -1413,6 +1528,7 @@ impl Simulation {
             equipment,
             lots,
             persisted_events: self.state.persisted_events,
+            dispatch: self.state.dispatch.iter().rev().cloned().collect(),
         }
     }
 
@@ -1586,6 +1702,8 @@ impl Simulation {
     }
 }
 
+pub mod whatif;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1633,17 +1751,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn dispatch_respects_priority() {
+    fn queued_sim(priorities: &[(u64, i32)]) -> Simulation {
         let mut scenario = scenario();
-        scenario.lot_count = 3;
+        scenario.lot_count = priorities.len();
         let mut sim = Simulation::new(scenario).unwrap();
-        // Make all three lots due at once.
+        // Make all lots due at once.
         sim.state.next_release_ms = 0;
-        sim.state.released_lots = 3;
+        sim.state.released_lots = priorities.len();
         sim.state.lots.clear();
-        for (serial, priority) in [(1u64, 1), (2, 9), (3, 5)] {
-            let lot = Lot::new(lot_id_for(serial), "PRD", &sim.route.id, priority, 2, 0);
+        for (serial, priority) in priorities {
+            let lot = Lot::new(lot_id_for(*serial), "PRD", &sim.route.id, *priority, 2, 0);
             let wafers: Vec<String> = (1..=2)
                 .map(|slot| format!("LOT-{serial:04}-W{slot:02}"))
                 .collect();
@@ -1664,6 +1781,12 @@ mod tests {
             sim.state.event_counter += ids.used() as u64;
             sim.state.queues.entry(1).or_default().push_back(id);
         }
+        sim
+    }
+
+    #[test]
+    fn dispatch_respects_priority() {
+        let mut sim = queued_sim(&[(1, 1), (2, 9), (3, 5)]);
         let output = sim.tick(0);
         let running: Vec<String> = sim
             .state
@@ -1682,6 +1805,24 @@ mod tests {
             "the highest priority lot goes first"
         );
         assert!(running.contains(&"LOT-0002".to_owned()));
+        let decision = sim.state.dispatch.first().expect("a decision was recorded");
+        assert_eq!(decision.lot_id, "LOT-0002");
+        assert_eq!(decision.rule, DispatchRule::PriorityThenFifo.label());
+        assert_eq!(decision.queue_len, 3);
+        assert_eq!(decision.queue_position, 1);
+    }
+
+    #[test]
+    fn the_fifo_rule_takes_the_queue_head_whatever_its_priority() {
+        let mut sim = queued_sim(&[(1, 1), (2, 9), (3, 5)]).with_rule(DispatchRule::Fifo);
+        let output = sim.tick(0);
+        let loaded = output
+            .events
+            .iter()
+            .find(|e| e.kind == EventKind::TrackIn)
+            .expect("a lot was loaded");
+        assert_eq!(loaded.lot_id, "LOT-0001");
+        assert_eq!(sim.state.dispatch[0].rule, DispatchRule::Fifo.label());
     }
 
     #[test]

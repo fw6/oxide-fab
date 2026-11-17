@@ -67,10 +67,12 @@ impl From<oxide_sim::SimError> for ApiError {
             oxide_sim::SimError::UnknownLot(_) => ApiError::NotFound(message),
             // The server's own configuration is unrunnable.
             oxide_sim::SimError::Scenario(_) => ApiError::Internal(message),
-            // A legal request for an illegal transition.
-            oxide_sim::SimError::Transition(_) | oxide_sim::SimError::MergingIntoSelf => {
-                ApiError::BadRequest(message)
-            }
+            // A legal request for an illegal transition, or a what-if that
+            // names a tool kind this route does not run.
+            oxide_sim::SimError::Transition(_)
+            | oxide_sim::SimError::MergingIntoSelf
+            | oxide_sim::SimError::UnknownKind(_)
+            | oxide_sim::SimError::DuplicateTool(_) => ApiError::BadRequest(message),
         }
     }
 }
