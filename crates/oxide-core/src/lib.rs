@@ -7,6 +7,7 @@
 
 mod string_enum;
 
+pub mod analytics;
 pub mod events;
 pub mod genealogy;
 pub mod metrics;

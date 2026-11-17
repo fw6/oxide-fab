@@ -135,6 +135,11 @@ pub struct RouteStep {
     pub ucl: Option<f64>,
     /// Lower control limit of the measured value, for metrology steps.
     pub lcl: Option<f64>,
+    /// The longest a lot may wait between leaving this step and entering the
+    /// next one, in simulated milliseconds. `None` disables the Q-time check
+    /// for this step.
+    #[serde(default)]
+    pub qtime_ms: Option<i64>,
 }
 
 impl RouteStep {

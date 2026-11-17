@@ -16,6 +16,7 @@
         "equipment_kind": "clean",
         "recipe_id": "RCP-CLEAN",
         "duration_ms": 6000,
+        "qtime_ms": 60000,
         "equipment_qualification": [
           "CLN-01",
           "CLN-02"
@@ -27,6 +28,7 @@
         "equipment_kind": "litho",
         "recipe_id": "RCP-LITHO",
         "duration_ms": 9000,
+        "qtime_ms": 60000,
         "equipment_qualification": [
           "LIT-01",
           "LIT-02"
@@ -38,6 +40,7 @@
         "equipment_kind": "etch",
         "recipe_id": "RCP-ETCH",
         "duration_ms": 8000,
+        "qtime_ms": 60000,
         "equipment_qualification": [
           "ETC-01"
         ]

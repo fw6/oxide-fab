@@ -311,6 +311,7 @@ mod tests {
                 target: Some(100.0),
                 ucl: Some(103.0),
                 lcl: Some(97.0),
+                qtime_ms: None,
             }],
         }
     }
