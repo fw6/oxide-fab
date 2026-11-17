@@ -240,8 +240,10 @@ jobs:
         shell: pwsh
         run: |
           $env:OXIDE_DEMO = "1"
-          $exe = Get-ChildItem "dist\windows\oxide-fab\oxidefab.exe"
-          if (-not $exe) { throw "no oxidefab.exe in the Windows package" }
+          # nsh names the Windows binary after --name (oxide-fab.exe); on macOS
+          # and Linux it is oxidefab.
+          $exe = Get-Item "dist\windows\oxide-fab\oxide-fab.exe" -ErrorAction SilentlyContinue
+          if (-not $exe) { throw "no oxide-fab.exe in the Windows package" }
           Write-Host "package contents:"
           Get-ChildItem "dist\windows\oxide-fab" | ForEach-Object { Write-Host "  $($_.Name)" }
           Write-Host "starting $($exe.FullName)"
@@ -249,7 +251,7 @@ jobs:
           Start-Sleep -Seconds 20
           if ($app.HasExited) {
             Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
-              Where-Object { $_.Message -match 'oxidefab' } |
+              Where-Object { $_.Message -match 'oxide' } |
               Select-Object -First 3 | Format-List TimeCreated, Id, LevelDisplayName, Message
             throw "the packaged app exited with code $($app.ExitCode)"
           }
@@ -263,7 +265,7 @@ jobs:
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
           }
           "@
-          $proc = Get-Process oxidefab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+          $proc = Get-Process oxide-fab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
           if (-not $proc) { throw "the packaged app has no window" }
           [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
           Start-Sleep -Seconds 2
