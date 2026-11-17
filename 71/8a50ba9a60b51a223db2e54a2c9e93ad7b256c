@@ -1,0 +1,61 @@
+crates/oxide-api/src/lib.rs
+  s_68975392b15f24::t_68b37731aff5b5 11
+crates/oxide-core/src/metrics.rs
+  s_68975392b15f24::t_68b37731aff5b5 280,323-326
+.github/workflows/ci.yml
+  s_68975392b15f24::t_5b1e935a58f352 30,59
+crates/oxide-secs/src/pair.rs
+  s_68975392b15f24::t_d54001475c7f84 471
+  s_68975392b15f24::t_c0063656f33895 430
+  s_68975392b15f24::t_68b37731aff5b5 12-13
+crates/oxide-secs/tests/four_behaviors.rs
+  s_68975392b15f24::t_68b37731aff5b5 8
+crates/oxide-core/src/events.rs
+  s_68975392b15f24::t_68b37731aff5b5 10
+crates/oxide-core/src/state_machine.rs
+  s_68975392b15f24::t_68b37731aff5b5 13,17-18,336
+crates/oxide-store/src/outbox.rs
+  s_68975392b15f24::t_68b37731aff5b5 15
+Dockerfile
+  s_68975392b15f24::t_68b37731aff5b5 4
+.github/workflows/release.yml
+  s_68975392b15f24::t_5b1e935a58f352 62,123
+bins/oxide-server/src/main.rs
+  s_68975392b15f24::t_cd549f32ca8890 294-295
+crates/oxide-api/src/handlers.rs
+  s_68975392b15f24::t_68b37731aff5b5 11,17,20
+  s_68975392b15f24::t_6c0c314db39555 361-364
+crates/oxide-sim/src/lib.rs
+  s_68975392b15f24::t_782b67fa5501b4 717-718,720-721
+  s_68975392b15f24::t_d545b8c8dcfc4a 695
+  s_68975392b15f24::t_03944068e27bf9 807-814
+  s_68975392b15f24::t_9eb1c76229cdd5 1161-1164
+  s_68975392b15f24::t_68b37731aff5b5 14-15,18,1697-1703,1713-1724,1728-1733
+  s_68975392b15f24::t_1b3b9ab6655652 537-545
+crates/oxide-secs/src/lib.rs
+  s_68975392b15f24::t_68b37731aff5b5 16
+Cargo.toml
+  s_68975392b15f24::t_e8c59eab41b815 16-17
+rust-toolchain.toml
+  s_68975392b15f24::t_bd4828910146db 2
+crates/oxide-store/src/pg.rs
+  s_68975392b15f24::t_68b37731aff5b5 4-5,8
+crates/oxide-core/src/genealogy.rs
+  s_68975392b15f24::t_2e9fb1821a335a 93-94,99-102
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "718a50ba9a60b51a223db2e54a2c9e93ad7b256c",
+  "prompts": {},
+  "sessions": {
+    "s_68975392b15f24": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_c78cf17d-c44c-46c0-9c2c-2c64a3ef6a8a",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
