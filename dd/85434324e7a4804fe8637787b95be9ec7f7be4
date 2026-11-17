@@ -1,0 +1,20 @@
+.github/workflows/ci.yml
+  s_7a68cbf16bb9fc::t_04b8f84d9d731e 243-248
+  s_7a68cbf16bb9fc::t_2cfc85ca540a0f 250-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "dd85434324e7a4804fe8637787b95be9ec7f7be4",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
