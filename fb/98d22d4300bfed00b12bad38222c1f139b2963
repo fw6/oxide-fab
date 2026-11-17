@@ -1,0 +1,25 @@
+crates/oxide-store/src/pg.rs
+  s_d7695dc4fe1122::t_f4197c28f9f4b0 359-368,384-386,393-395
+  s_d7695dc4fe1122::t_3e7ca76dc7c1ed 74-97,327-358,369-383,387-392,396-401
+crates/oxide-store/src/lib.rs
+  s_d7695dc4fe1122::t_392ed42aa8c1fe 10-13
+crates/oxide-store/src/greptime.rs
+  s_d7695dc4fe1122::t_3e7ca76dc7c1ed 182,184-205
+  s_d7695dc4fe1122::t_fff7fd7af247a3 183
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "fb98d22d4300bfed00b12bad38222c1f139b2963",
+  "prompts": {},
+  "sessions": {
+    "s_d7695dc4fe1122": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_0c0e2838-da28-49df-be4c-f58165f7e7db",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
