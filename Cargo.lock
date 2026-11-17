@@ -1015,7 +1015,6 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 name = "oxide-api"
 version = "0.1.2"
 dependencies = [
- "anyhow",
  "axum",
  "oxide-core",
  "oxide-secs",
@@ -1047,8 +1046,6 @@ dependencies = [
  "secs4rs",
  "serde",
  "serde_json",
- "thiserror",
- "tracing",
 ]
 
 [[package]]
@@ -1085,7 +1082,6 @@ dependencies = [
 name = "oxide-store"
 version = "0.1.2"
 dependencies = [
- "anyhow",
  "chrono",
  "oxide-core",
  "reqwest",

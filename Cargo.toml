@@ -13,11 +13,9 @@ exclude = ["crates/oxide-ui"]
 
 [workspace.package]
 version = "0.1.2"
-edition = "2021"
-rust-version = "1.85"
+edition = "2024"
+rust-version = "1.100.0"
 license = "Apache-2.0"
-repository = "https://github.com/fw6/oxide-fab"
-authors = ["oxide-fab contributors"]
 
 [workspace.dependencies]
 oxide-core = { path = "crates/oxide-core" }
@@ -29,7 +27,6 @@ oxide-api = { path = "crates/oxide-api" }
 anyhow = "1"
 axum = "0.8"
 chrono = { version = "0.4", features = ["serde"] }
-hex = "0.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

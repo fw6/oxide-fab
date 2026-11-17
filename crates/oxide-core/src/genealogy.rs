@@ -90,17 +90,16 @@ pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenea
                     .get("measured")
                     .and_then(serde_json::Value::as_f64);
                 for wafer_id in event.wafers() {
-                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == wafer_id) {
-                        if let Some(step) = record
+                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == wafer_id)
+                        && let Some(step) = record
                             .steps
                             .iter_mut()
                             .rev()
                             .find(|s| s.step_no == step_no && s.track_out_ms == 0)
-                        {
-                            step.track_out_ms = event.occurred_at_ms;
-                            step.duration_ms = duration_ms;
-                            step.measured = measured;
-                        }
+                    {
+                        step.track_out_ms = event.occurred_at_ms;
+                        step.duration_ms = duration_ms;
+                        step.measured = measured;
                     }
                 }
             }

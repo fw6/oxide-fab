@@ -277,7 +277,7 @@ pub fn derive(event: &DomainEvent, route: &Route) -> Vec<MetricRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{track_out_payload, DomainEvent};
+    use crate::events::{DomainEvent, track_out_payload};
     use crate::model::RouteStep;
 
     fn route() -> Route {
@@ -320,9 +320,10 @@ mod tests {
         );
         let rows = derive(&event, &route());
         assert_eq!(rows.len(), 4);
-        assert!(rows
-            .iter()
-            .any(|r| matches!(r, MetricRow::Spc(p) if p.value == 101.2)));
+        assert!(
+            rows.iter()
+                .any(|r| matches!(r, MetricRow::Spc(p) if p.value == 101.2))
+        );
         assert!(rows.iter().all(|r| r.event_id() == eid));
     }
 

@@ -9,8 +9,8 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use secs4rs::gem::{
-    s1f1, s1f13, s1f14, s1f17, s1f18, s1f2, s5f1_alarm, s5f2, s6f11_event, s6f11_report, s6f12,
-    s7f4, Ackc5, Ackc6, Ackc7, CommAck, GemConfig, OnlAck,
+    Ackc5, Ackc6, Ackc7, CommAck, GemConfig, OnlAck, s1f1, s1f2, s1f13, s1f14, s1f17, s1f18,
+    s5f1_alarm, s5f2, s6f11_event, s6f11_report, s6f12, s7f4,
 };
 use secs4rs::hsms::HsmsMessage;
 use secs4rs::hsms_ss::{HsmsSsCommunicator, HsmsSsCommunicatorConfig};
@@ -427,7 +427,7 @@ fn send_task(
     status: &Arc<Mutex<SecsStatus>>,
     task: &EquipmentTask,
 ) -> bool {
-    let result = match task {
+    match task {
         EquipmentTask::ProcessStarted {
             lot_id,
             step_no,
@@ -468,8 +468,7 @@ fn send_task(
                 false
             }
         },
-    };
-    result
+    }
 }
 
 fn send_event(

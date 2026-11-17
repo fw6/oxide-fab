@@ -12,7 +12,7 @@ use std::sync::{Arc, Mutex};
 use oxide_core::metrics::MetricRow;
 use oxide_core::model::Route;
 use serde::{Deserialize, Serialize};
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 
 use crate::greptime::GreptimeDb;
 use crate::pg::{PgStore, Result as StoreResult};

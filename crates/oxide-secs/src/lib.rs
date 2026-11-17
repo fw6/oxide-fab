@@ -13,7 +13,7 @@
 pub mod pair;
 
 #[cfg(feature = "secs-gem")]
-pub use pair::{start_pair, SecsConfig, SecsHandle, SecsStatus, TrafficEntry};
+pub use pair::{SecsConfig, SecsHandle, SecsStatus, TrafficEntry, start_pair};
 
 /// The GEM collection events this simulated equipment reports.
 pub mod ceid {

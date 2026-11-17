@@ -5,7 +5,7 @@
 use std::time::{Duration, Instant};
 
 use oxide_core::model::Recipe;
-use oxide_secs::{start_pair, SecsConfig, SecsHandle, SecsStatus};
+use oxide_secs::{SecsConfig, SecsHandle, SecsStatus, start_pair};
 
 fn wait_for(
     handle: &SecsHandle,

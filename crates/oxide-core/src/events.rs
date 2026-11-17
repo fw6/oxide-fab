@@ -7,7 +7,7 @@
 //! is what makes it reconstructible.
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::model::{LotId, WaferId};

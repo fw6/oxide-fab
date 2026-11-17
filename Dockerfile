@@ -1,7 +1,7 @@
 # A static musl build in a small busybox image: no libc drift between the
 # build and runtime images, and the container runs as a numeric non-root user.
 
-FROM rust:1.99-bookworm AS build
+FROM rust:1.100-bookworm AS build
 WORKDIR /src
 
 RUN apt-get update \

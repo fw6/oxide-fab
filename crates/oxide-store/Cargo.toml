@@ -9,7 +9,6 @@ description = "PostgreSQL event store, transactional outbox projector and Grepti
 [dependencies]
 oxide-core.workspace = true
 
-anyhow.workspace = true
 chrono.workspace = true
 reqwest.workspace = true
 serde.workspace = true

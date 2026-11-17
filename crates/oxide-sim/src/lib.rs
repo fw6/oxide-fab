@@ -11,11 +11,11 @@ use std::collections::{BTreeMap, BinaryHeap, VecDeque};
 
 use oxide_core::events::{DomainEvent, EventKind};
 use oxide_core::model::{
-    deterministic_event_id, lot_id_for, Equipment, EquipmentState, Lot, LotState, Route, Wafer,
-    WaferId, WaferState,
+    Equipment, EquipmentState, Lot, LotState, Route, Wafer, WaferId, WaferState,
+    deterministic_event_id, lot_id_for,
 };
 use oxide_core::scenario::Scenario;
-use oxide_core::state_machine::{equipment_down, equipment_up, EventIds, LotAggregate};
+use oxide_core::state_machine::{EventIds, LotAggregate, equipment_down, equipment_up};
 use serde::{Deserialize, Serialize};
 
 /// A message the simulated equipment sends to the SECS/GEM host.
@@ -534,15 +534,15 @@ impl Simulation {
                     .and_then(serde_json::Value::as_str)
                     .unwrap_or_default()
                     .to_owned();
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    if let Some(wafer) = aggregate.wafers.iter_mut().find(|w| w.id == wafer_id) {
-                        wafer.state = WaferState::Scrapped;
-                        wafer.defect_info = event
-                            .payload
-                            .get("reason")
-                            .and_then(serde_json::Value::as_str)
-                            .map(str::to_owned);
-                    }
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && let Some(wafer) = aggregate.wafers.iter_mut().find(|w| w.id == wafer_id)
+                {
+                    wafer.state = WaferState::Scrapped;
+                    wafer.defect_info = event
+                        .payload
+                        .get("reason")
+                        .and_then(serde_json::Value::as_str)
+                        .map(str::to_owned);
                 }
             }
             EventKind::LotSplit => {
@@ -692,7 +692,7 @@ impl Simulation {
             let wafers: Vec<WaferId> = (1..=self.scenario.wafers_per_lot)
                 .map(|slot| format!("{lot_id}-W{slot:02}"))
                 .collect();
-            let priority = if serial % 3 == 0 { 9 } else { 5 };
+            let priority = if serial.is_multiple_of(3) { 9 } else { 5 };
             let lot = Lot::new(
                 &lot_id,
                 &self.scenario.product.id,
@@ -714,12 +714,11 @@ impl Simulation {
                     let mut ids = self.ids_base();
                     let mut queued_events = Vec::new();
                     {
-                        if let Some(aggregate) = self.state.lots.get_mut(&lot_id) {
-                            if let Ok(queued) =
+                        if let Some(aggregate) = self.state.lots.get_mut(&lot_id)
+                            && let Ok(queued) =
                                 aggregate.queue(first, &mut ids, self.state.now_ms, "mes")
-                            {
-                                queued_events = queued.events;
-                            }
+                        {
+                            queued_events = queued.events;
                         }
                     }
                     self.advance_counter(ids.used());
@@ -805,14 +804,14 @@ impl Simulation {
             Ok(transition) => {
                 self.advance_counter(ids.used());
                 output.events.extend(transition.events.clone());
-                if let Some(event) = transition.events.first() {
-                    if event.kind == EventKind::TrackOut {
-                        output.secs.push(SecsTrigger::ProcessCompleted {
-                            lot_id: lot_id.to_owned(),
-                            step_no,
-                            equipment_id: equipment_id.to_owned(),
-                        });
-                    }
+                if let Some(event) = transition.events.first()
+                    && event.kind == EventKind::TrackOut
+                {
+                    output.secs.push(SecsTrigger::ProcessCompleted {
+                        lot_id: lot_id.to_owned(),
+                        step_no,
+                        equipment_id: equipment_id.to_owned(),
+                    });
                 }
             }
             Err(error) => {
@@ -1159,10 +1158,10 @@ impl Simulation {
     }
 
     fn dequeue(&mut self, step_no: i32, lot_id: &str) {
-        if let Some(queue) = self.state.queues.get_mut(&step_no) {
-            if let Some(position) = queue.iter().position(|id| id == lot_id) {
-                queue.remove(position);
-            }
+        if let Some(queue) = self.state.queues.get_mut(&step_no)
+            && let Some(position) = queue.iter().position(|id| id == lot_id)
+        {
+            queue.remove(position);
         }
     }
 
@@ -1695,11 +1694,13 @@ mod tests {
         for _ in 0..2000 {
             restored.tick(100);
         }
-        assert!(restored
-            .state
-            .lots
-            .values()
-            .any(|aggregate| aggregate.lot.state == LotState::Completed));
+        assert!(
+            restored
+                .state
+                .lots
+                .values()
+                .any(|aggregate| aggregate.lot.state == LotState::Completed)
+        );
     }
 
     #[test]
@@ -1709,23 +1710,27 @@ mod tests {
         scenario.repair_ms = 500;
         let mut sim = Simulation::new(scenario).unwrap();
         let output = sim.tick(100);
-        assert!(output
-            .events
-            .iter()
-            .any(|e| e.kind == EventKind::EquipmentDown));
-        assert!(sim
-            .state
-            .equipment
-            .values()
-            .any(|r| r.equipment.state == EquipmentState::Down));
+        assert!(
+            output
+                .events
+                .iter()
+                .any(|e| e.kind == EventKind::EquipmentDown)
+        );
+        assert!(
+            sim.state
+                .equipment
+                .values()
+                .any(|r| r.equipment.state == EquipmentState::Down)
+        );
         for _ in 0..20 {
             sim.tick(100);
         }
-        assert!(sim
-            .state
-            .equipment
-            .values()
-            .any(|r| r.equipment.state == EquipmentState::Idle));
+        assert!(
+            sim.state
+                .equipment
+                .values()
+                .any(|r| r.equipment.state == EquipmentState::Idle)
+        );
     }
 
     #[test]

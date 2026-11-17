@@ -8,16 +8,16 @@
 
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
-use axum::Json;
 use oxide_core::events::DomainEvent;
-use oxide_store::outbox::{replay as replay_events, ReplayReport};
+use oxide_store::outbox::{ReplayReport, replay as replay_events};
 use oxide_store::{DbCounts, OutboxStats};
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::dto::*;
 use crate::{AppState, Shared};
@@ -358,10 +358,10 @@ pub async fn set_speed(
 }
 
 async fn read_spc(state: &Arc<AppState>) -> (Vec<oxide_store::SpcBucket>, String) {
-    if let Ok(buckets) = state.greptime.spc_series(120).await {
-        if !buckets.is_empty() {
-            return (buckets, "flow".to_owned());
-        }
+    if let Ok(buckets) = state.greptime.spc_series(120).await
+        && !buckets.is_empty()
+    {
+        return (buckets, "flow".to_owned());
     }
     match state.greptime.raw_spc_series(120).await {
         Ok(buckets) => (buckets, "raw".to_owned()),

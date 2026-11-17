@@ -2,6 +2,7 @@
 name = "oxide-ui"
 version = "0.1.2"
 edition = "2024"
+rust-version = "1.100.0"
 publish = false
 
 # The nsh app is its own workspace; nsh builds its runners from this crate.

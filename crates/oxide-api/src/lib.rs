@@ -7,8 +7,8 @@ pub mod handlers;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use axum::routing::{get, post};
 use axum::Router;
+use axum::routing::{get, post};
 use oxide_core::Scenario;
 use oxide_secs::SecsHandle;
 use oxide_sim::Simulation;

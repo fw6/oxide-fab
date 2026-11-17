@@ -1,11 +1,11 @@
 //! PostgreSQL: the append-only event log, its projections, and the outbox.
 
 use oxide_core::events::{DomainEvent, EventKind};
-use oxide_core::genealogy::{genealogy_for, WaferGenealogy};
-use oxide_core::metrics::{derive, MetricRow};
+use oxide_core::genealogy::{WaferGenealogy, genealogy_for};
+use oxide_core::metrics::{MetricRow, derive};
 use oxide_core::model::{Lot, LotState, Route, Wafer, WaferState};
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 

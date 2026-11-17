@@ -291,7 +291,8 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
             // counter, and a difference would then stay negative for a long
             // time and never checkpoint. The equality guard avoids saving
             // twice for the same count.
-            if persisted > 0 && persisted % every == 0 && persisted != last_snapshot_events {
+            if persisted > 0 && persisted.is_multiple_of(every) && persisted != last_snapshot_events
+            {
                 save_snapshot(&state).await;
                 last_snapshot_events = persisted;
             }

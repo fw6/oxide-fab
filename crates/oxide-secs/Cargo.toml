@@ -12,8 +12,6 @@ oxide-core.workspace = true
 secs4rs = { git = "https://github.com/Asuka-00/secs4rs", rev = "b5a6e707e4214672417364278efc8c398d00e8a8" }
 serde.workspace = true
 serde_json.workspace = true
-thiserror.workspace = true
-tracing.workspace = true
 
 [features]
 default = ["secs-gem"]

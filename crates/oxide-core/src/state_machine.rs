@@ -10,12 +10,12 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::events::{
-    equipment_down_payload, equipment_up_payload, lot_created_payload, lot_queued_payload,
-    merged_payload, split_payload, track_in_payload, track_out_payload, DomainEvent, EventKind,
+    DomainEvent, EventKind, equipment_down_payload, equipment_up_payload, lot_created_payload,
+    lot_queued_payload, merged_payload, split_payload, track_in_payload, track_out_payload,
 };
 use crate::model::{Lot, LotId, LotState, Wafer, WaferId, WaferState};
 
@@ -333,7 +333,7 @@ impl LotAggregate {
                 return Err(TransitionError::IllegalState {
                     from: self.lot.state,
                     action: "rework",
-                })
+                });
             }
             LotState::Completed => return Err(TransitionError::AlreadyCompleted),
             _ => {}
