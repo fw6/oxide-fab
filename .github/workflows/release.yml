@@ -55,7 +55,7 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -104,7 +104,7 @@ jobs:
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           Add-Content -Path $env:GITHUB_ENV -Value "ASSET=dist/$name.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: oxide-server-${{ matrix.target }}
           path: ${{ env.ASSET }}
@@ -129,7 +129,7 @@ jobs:
             target: windows
             arch: x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@master
         with:
@@ -270,7 +270,7 @@ jobs:
           $bitmap.Save("artifacts\desktop-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
           Stop-Process -Id $app.Id -Force
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.target }}
           path: |
@@ -286,7 +286,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
@@ -301,7 +301,7 @@ jobs:
           cat SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -ge 5
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: checksums
           path: dist/SHA256SUMS.txt
@@ -314,7 +314,7 @@ jobs:
     # The arm64 leg compiles the workspace under QEMU; the amd64 leg is native.
     timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Resolve the version
         run: |
@@ -335,7 +335,7 @@ jobs:
 
       - name: Log in to GHCR
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -367,15 +367,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
       - name: Download the CI evidence (chaos report)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: oxide-evidence
           path: artifacts
@@ -436,7 +436,7 @@ jobs:
           cat NOTES.md
 
       - name: Publish
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body_path: NOTES.md
           files: |

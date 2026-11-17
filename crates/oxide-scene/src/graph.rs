@@ -144,7 +144,7 @@ pub struct SceneOptions {
     pub explosion: f32,
     pub selected: Option<Entity>,
     pub reduce_motion: bool,
-    /// The derived channel is behind (GreptimeDB down, or the outbox has a
+    /// The derived channel is behind (`GreptimeDB` down, or the outbox has a
     /// backlog): the AMHS ring and a beacon at the entry turn amber.
     pub derive_alert: bool,
     pub theme: SceneTheme,
