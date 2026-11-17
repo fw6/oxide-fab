@@ -1,0 +1,21 @@
+Cargo.toml
+  s_68975392b15f24::t_3641ef2a6f26e2 57-70
+crates/oxide-ui/Cargo.toml
+  s_68975392b15f24::t_52ef8787bcc2a8 10-18
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "95150a0c2326b220a4c985044a7ab481a2c36782",
+  "prompts": {},
+  "sessions": {
+    "s_68975392b15f24": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_c78cf17d-c44c-46c0-9c2c-2c64a3ef6a8a",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
