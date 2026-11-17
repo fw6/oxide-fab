@@ -1,0 +1,23 @@
+.github/compose-cache.yml
+  s_7a68cbf16bb9fc::t_ef77f580ff7063 1-30
+.github/workflows/ci.yml
+  s_7a68cbf16bb9fc::t_29fdab48391422 19-25
+  s_7a68cbf16bb9fc::t_c91ed91a253194 94-99
+  s_7a68cbf16bb9fc::t_13bafd70fa208e 364-366
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "ca724b7c20b915602076280338024bca6f0ce982",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
