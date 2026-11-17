@@ -179,6 +179,30 @@ impl GreptimeDb {
         Ok(buckets_from_rows(&self.execute(&sql).await?))
     }
 
+    /// Every row the four derived tables hold for one event, keyed by table.
+    /// The values are the columns `GreptimeDB` returns, unchanged.
+    pub async fn rows_for_event(
+        &self,
+        event_id: uuid::Uuid,
+    ) -> Result<std::collections::BTreeMap<String, Vec<serde_json::Value>>> {
+        let mut rows = std::collections::BTreeMap::new();
+        for table in MetricTable::all() {
+            let sql = format!(
+                "SELECT * FROM {} WHERE event_id = '{}' ORDER BY ts LIMIT 20",
+                table.as_str(),
+                event_id
+            );
+            let result = self.execute(&sql).await?;
+            if !result.is_empty() {
+                rows.insert(
+                    table.as_str().to_owned(),
+                    result.into_iter().map(serde_json::Value::Object).collect(),
+                );
+            }
+        }
+        Ok(rows)
+    }
+
     pub async fn counts_for(&self, table: MetricTable) -> Result<i64> {
         let rows = self
             .execute(&format!("SELECT count(*) AS c FROM {}", table.as_str()))

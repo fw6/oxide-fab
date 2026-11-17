@@ -7,4 +7,7 @@ pub mod pg;
 
 pub use greptime::{GreptimeDb, GreptimeError, SpcBucket};
 pub use outbox::{OutboxSample, OutboxTimeline, Publisher, ReplayReport};
-pub use pg::{DbCounts, LotGenealogy, OutboxStats, PersistedEvent, PgStore, StoreError};
+pub use pg::{
+    DbCounts, LotGenealogy, OutboxHealth, OutboxStats, OutboxTrace, PersistedEvent, PgStore,
+    StoreError,
+};

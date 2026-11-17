@@ -71,6 +71,30 @@ pub struct OutboxStats {
     pub max_attempts: i32,
 }
 
+/// One outbox row, as the event trace shows it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OutboxTrace {
+    pub event_id: Uuid,
+    pub aggregate_id: String,
+    pub topic: String,
+    pub attempts: i32,
+    pub created_at: String,
+    pub published_at: Option<String>,
+    pub last_error: Option<String>,
+    pub payload: Value,
+}
+
+/// Publisher liveness: how far behind the outbox is, and when it last
+/// delivered anything.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutboxHealth {
+    pub pending: i64,
+    pub max_attempts: i32,
+    pub oldest_pending_age_ms: i64,
+    /// `-1` when nothing has ever been published.
+    pub last_published_age_ms: i64,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DbCounts {
     pub lots: i64,
@@ -298,6 +322,83 @@ impl PgStore {
         .fetch_all(&self.pool)
         .await?;
         rows.into_iter().map(event_from_row).collect()
+    }
+
+    pub async fn event_by_id(&self, event_id: Uuid) -> Result<Option<PersistedEvent>> {
+        let row = sqlx::query_as::<_, EventColumns>(
+            "SELECT seq, event_id, lot_id, wafer_id, kind, payload, occurred_at_ms, actor
+             FROM lot_event WHERE event_id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        row.map(event_from_row).transpose()
+    }
+
+    pub async fn outbox_trace(&self, event_id: Uuid) -> Result<Option<OutboxTrace>> {
+        let row = sqlx::query_as::<
+            _,
+            (
+                Uuid,
+                String,
+                String,
+                i32,
+                chrono::DateTime<chrono::Utc>,
+                Option<chrono::DateTime<chrono::Utc>>,
+                Option<String>,
+                Value,
+            ),
+        >(
+            "SELECT event_id, aggregate_id, topic, attempts, created_at, published_at, last_error, payload
+             FROM outbox WHERE event_id = $1",
+        )
+        .bind(event_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(
+                event_id,
+                aggregate_id,
+                topic,
+                attempts,
+                created_at,
+                published_at,
+                last_error,
+                payload,
+            )| {
+                OutboxTrace {
+                    event_id,
+                    aggregate_id,
+                    topic,
+                    attempts,
+                    created_at: created_at.to_rfc3339(),
+                    published_at: published_at.map(|at| at.to_rfc3339()),
+                    last_error,
+                    payload,
+                }
+            },
+        ))
+    }
+
+    pub async fn outbox_health(&self) -> Result<OutboxHealth> {
+        let (pending, max_attempts, oldest_ms, last_published_ms) =
+            sqlx::query_as::<_, (i64, i32, i64, i64)>(
+                "SELECT
+               count(*) FILTER (WHERE published_at IS NULL)::BIGINT,
+               coalesce(max(attempts), 0)::INT4,
+               coalesce(extract(epoch FROM (now() - min(created_at)
+                 FILTER (WHERE published_at IS NULL))) * 1000, 0)::BIGINT,
+               coalesce(extract(epoch FROM (now() - max(published_at))) * 1000, -1)::BIGINT
+             FROM outbox",
+            )
+            .fetch_one(&self.pool)
+            .await?;
+        Ok(OutboxHealth {
+            pending,
+            max_attempts,
+            oldest_pending_age_ms: oldest_ms.max(0),
+            last_published_age_ms: last_published_ms,
+        })
     }
 
     pub async fn max_seq(&self) -> Result<i64> {
