@@ -2,6 +2,10 @@ name: CI
 
 # Runs on every push and pull request, and is reused by release.yml so a tag
 # cannot publish anything that this workflow has not verified.
+#
+# Phase 2 changed the UI deliverable: the workbench is a desktop application
+# (macOS, Windows, Linux), the 3D viewport is wgpu, and every target is built,
+# packaged and run on its own runner. The web and TUI packages are gone.
 
 on:
   push:
@@ -20,7 +24,7 @@ jobs:
   lint-and-test:
     name: fmt, clippy, tests, audit
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -32,13 +36,33 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: A software Vulkan device for the renderer tests
+        # oxide-render's tests draw real frames. On a runner that means a
+        # software adapter (lavapipe), which is the same path CI uses for the
+        # packaged app's evidence.
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libvulkan1 mesa-vulkan-drivers vulkan-tools
+          for icd in /usr/share/vulkan/icd.d/lvp_icd.x86_64.json \
+                     /usr/share/vulkan/icd.d/lvp_icd.json; do
+            if [ -f "$icd" ]; then
+              echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+              break
+            fi
+          done
+          vulkaninfo --summary | head -20 || true
+
       - name: cargo fmt
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      - name: cargo test (no database needed)
+      - name: cargo test (no database needed; the renderer uses lavapipe)
+        env:
+          OXIDE_RENDER_SOFTWARE: "1"
         run: cargo test --workspace
 
       - name: cargo audit
@@ -47,9 +71,9 @@ jobs:
           cargo audit
 
   ui:
-    name: nsh UI tests
+    name: nsh UI tests, assets and UI workspace lint
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -57,31 +81,19 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.100.0"
-          # `nsh package --target web` compiles the runtime for wasm, and that
-          # package is an artefact the release ships: the gate below needs the
-          # target installed, exactly as the release job does.
-          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: crates/oxide-ui
 
-      - name: Native libraries (GTK 4, GStreamer, Pango) and the wasm C toolchain
-        # `nsh-platform-web` compiles zstd for wasm32, and cc-rs obtains the
-        # target's archiver from `llvm-ar`: without it the web package fails
-        # with "failed to find tool llvm-ar" (seen on run 43925767572).
+      - name: Native libraries for the desktop targets
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev clang llvm lld
-          if ! command -v llvm-ar >/dev/null; then
-            LLVM_AR="$(find /usr/lib -maxdepth 3 -path '*/llvm-*/bin/llvm-ar' | sort -V | tail -1)"
-            sudo ln -sf "$LLVM_AR" /usr/local/bin/llvm-ar
-          fi
-          echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar)" >> "$GITHUB_ENV"
-          llvm-ar --version | head -1
+            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick \
+            fonts-noto-cjk
 
       - name: Install nsh
         run: |
@@ -104,27 +116,203 @@ jobs:
       - name: nsh check (cargo check for the crate)
         run: nsh check crates/oxide-ui
 
-      - name: nsh test (headless UI tests, JUnit report)
+      - name: nsh test (headless shell, domain and control tests, JUnit report)
         run: |
           mkdir -p artifacts
           nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
 
-      - name: nsh package (the web package the release ships)
-        run: |
-          set -euo pipefail
-          nsh package crates/oxide-ui --target web \
-            --name oxide-ui --app-version 0.0.0-ci --build "$GITHUB_RUN_NUMBER" \
-            -o dist/web
-          # nsh writes the package into a directory named after --name.
-          test -s dist/web/oxide-ui/index.html
-          du -sh dist/web/oxide-ui
+      - name: GLB and manifest validation
+        run: ./scripts/validate-assets.sh | tee artifacts/assets-validation.log
 
       - name: Upload the nsh test report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: nsh-tests
-          path: artifacts/nsh-tests.xml
+          path: |
+            artifacts/nsh-tests.xml
+            artifacts/assets-validation.log
+          if-no-files-found: warn
+
+  desktop:
+    name: desktop ${{ matrix.target }} (package, run, screenshot)
+    needs: [lint-and-test, ui]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            arch: x86_64
+          - os: macos-latest
+            target: macos
+            arch: arm64
+          - os: windows-latest
+            target: windows
+            arch: x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the pinned toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.100.0"
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            crates/oxide-ui
+
+      - name: Linux native libraries (GTK 4, Vulkan, Xvfb, screenshot)
+        if: runner.os == 'Linux'
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick \
+            fonts-noto-cjk
+
+      - name: Install nsh (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -fsSL https://nsh.dev/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+        env:
+          NSH_VERSION: v0.5.0
+
+      - name: Install nsh (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:NSH_VERSION = "v0.5.0"
+          irm https://nsh.dev/install.ps1 | iex
+          "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      - name: nsh version
+        shell: bash
+        run: nsh --version
+
+      - name: Build the desktop package
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
+        run: ./scripts/desktop-package.sh dist
+
+      - name: Software-rendering evidence (four levels + orthographic)
+        shell: bash
+        run: ./scripts/render-evidence.sh artifacts/render
+
+      - name: Run the packaged app and screenshot (Linux, Xvfb)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The inner script is single-quoted on purpose: $! and $pid belong to it.
+          # shellcheck disable=SC2016
+          xvfb-run -a -s "-screen 0 1600x1000x24" bash -c '
+            set -euo pipefail
+            OXIDE_DEMO=1 dist/linux/oxide-fab/oxidefab &
+            pid=$!
+            sleep 20
+            import -window root artifacts/desktop-linux.png
+            kill $pid || true
+          '
+          test -s artifacts/desktop-linux.png
+
+      - name: Stop the backend
+        if: runner.os == 'Linux'
+        run: docker compose down -v
+
+      - name: Run the packaged app and screenshot (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OXIDE_DEMO=1 "dist/macos/oxide-fab.app/Contents/MacOS/oxidefab" &
+          pid=$!
+          sleep 20
+          swift scripts/window-shot.swift oxide-fab artifacts/desktop-macos.png
+          kill $pid || true
+          test -s artifacts/desktop-macos.png
+
+      - name: Run the packaged app and screenshot (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:OXIDE_DEMO = "1"
+          $exe = Get-ChildItem "dist\windows\oxide-fab\*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "no executable in the Windows package" }
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 20
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class OxideWin {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          "@
+          $proc = Get-Process oxidefab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+          if (-not $proc) { throw "the packaged app has no window" }
+          [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+          Start-Sleep -Seconds 2
+          $rect = New-Object OxideWin+RECT
+          [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          $width = $rect.Right - $rect.Left
+          $height = $rect.Bottom - $rect.Top
+          $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+          $bitmap.Save("artifacts\desktop-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          Stop-Process -Id $app.Id -Force
+
+      - name: Archive the package (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' crates/oxide-ui/nsh.json | head -1)"
+          arch="$(uname -m)"
+          if [ "${{ matrix.target }}" = "macos" ]; then
+            ditto -c -k --keepParent "dist/macos/oxide-fab.app" \
+              "dist/oxide-fab-${version}-macos-${arch}.zip"
+          else
+            tar -C dist/linux -czf \
+              "dist/oxide-fab-${version}-linux-${arch}.tar.gz" oxide-fab
+          fi
+
+      - name: Archive the package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path crates/oxide-ui/nsh.json -Pattern '"version":\s*"([^"]+)"').Matches.Groups[1].Value
+          Compress-Archive -Path "dist\windows\oxide-fab" `
+            -DestinationPath "dist\oxide-fab-$version-windows-x86_64.zip"
+          $setup = Get-ChildItem -Path "dist\windows" -Filter "*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if ($setup) {
+            Copy-Item $setup.FullName "dist\oxide-fab-$version-windows-x86_64-setup.exe"
+            Write-Host "Inno Setup installer: $($setup.Name)"
+          } else {
+            Write-Host "::warning::Inno Setup 6 is not installed: the Windows package is the zip only"
+          }
+
+      - name: Upload the desktop evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.target }}
+          path: |
+            artifacts/desktop-${{ matrix.target }}.png
+            artifacts/render/**
+            dist/oxide-fab-*.zip
+            dist/oxide-fab-*.tar.gz
+            dist/oxide-fab-*.exe
           if-no-files-found: warn
 
   workflows:

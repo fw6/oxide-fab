@@ -110,47 +110,64 @@ jobs:
           path: ${{ env.ASSET }}
           if-no-files-found: error
 
-  nsh-packages:
-    name: nsh packages (web, tui)
+  desktop-packages:
+    name: desktop ${{ matrix.target }} package
     needs: ci
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: linux
+            arch: x86_64
+          - os: macos-latest
+            target: macos
+            arch: arm64
+          - os: windows-latest
+            target: windows
+            arch: x86_64
     steps:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.100.0"
-          # The web package compiles the runtime for wasm.
-          targets: wasm32-unknown-unknown
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/oxide-ui
+          workspaces: |
+            .
+            crates/oxide-ui
 
-      - name: Native libraries (GTK 4, GStreamer, Pango) and the wasm C toolchain
-        # The web runtime compiles zstd for wasm32; cc-rs looks for llvm-ar.
+      - name: Linux native libraries
+        if: runner.os == 'Linux'
         run: |
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev clang llvm lld
-          if ! command -v llvm-ar >/dev/null; then
-            LLVM_AR="$(find /usr/lib -maxdepth 3 -path '*/llvm-*/bin/llvm-ar' | sort -V | tail -1)"
-            sudo ln -sf "$LLVM_AR" /usr/local/bin/llvm-ar
-          fi
-          echo "AR_wasm32_unknown_unknown=$(command -v llvm-ar)" >> "$GITHUB_ENV"
-          llvm-ar --version | head -1
+            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick
 
-      - name: Install nsh
+      - name: Install nsh (Unix)
+        if: runner.os != 'Windows'
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
         env:
-          NSH_VERSION: v0.5.1
+          NSH_VERSION: v0.5.0
+
+      - name: Install nsh (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:NSH_VERSION = "v0.5.0"
+          irm https://nsh.dev/install.ps1 | iex
+          "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Resolve the version
+        shell: bash
         run: |
           set -euo pipefail
           if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
@@ -164,68 +181,108 @@ jobs:
           version="${version#v}"
           echo "VERSION=${version}" >> "$GITHUB_ENV"
 
-      - name: Build the web package
+      - name: Build, run and archive the desktop package
+        shell: bash
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}
         run: |
           set -euo pipefail
-          nsh package crates/oxide-ui --target web \
-            --name "oxide-ui" --app-version "$VERSION" --build "$GITHUB_RUN_NUMBER" \
-            -o dist/web
-          tar -C dist/web -czf "dist/oxide-ui-${VERSION}-web.tar.gz" .
-
-      - name: Build the TUI package
-        # nsh 0.5.0, 0.5.1 and the nightly all reject `--target tui` for
-        # `package` (the value is a built-in run/test target, so the external
-        # target mechanism is not reached). The TUI is therefore shipped as the
-        # app description plus the sources the terminal host mounts, and the
-        # TUI target itself is exercised by `nsh test --target tui` below.
-        run: |
-          set -euo pipefail
+          ./scripts/desktop-package.sh dist
           mkdir -p artifacts
-          nsh test crates/oxide-ui --target tui --junit artifacts/nsh-tui-tests.xml
-          nsh build crates/oxide-ui --release -o "dist/tui"
-          mkdir -p dist/tui/app/src dist/tui/app/tests
-          cp crates/oxide-ui/{Cargo.toml,Cargo.lock,nsh.json,theme.json,App.test.tsx} dist/tui/app/
-          cp crates/oxide-ui/src/*.rs dist/tui/app/src/
-          cp crates/oxide-ui/tests/*.rs dist/tui/app/tests/
-          cp README.md "dist/tui/README.md"
-          cat > "dist/tui/RUNNING.txt" <<'TXT'
-          oxide-ui — the terminal dashboard.
+          case "${{ matrix.target }}" in
+            macos)
+              ditto -c -k --keepParent "dist/macos/oxide-fab.app" \
+                "dist/oxide-fab-${VERSION}-macos-$(uname -m).zip"
+              ;;
+            linux)
+              tar -C dist/linux -czf \
+                "dist/oxide-fab-${VERSION}-linux-$(uname -m).tar.gz" oxide-fab
+              ;;
+            windows)
+              powershell -NoProfile -Command \
+                "Compress-Archive -Path 'dist/windows/oxide-fab' -DestinationPath ('dist/oxide-fab-' + $env:VERSION + '-windows-${{ matrix.arch }}.zip')"
+              setup="$(find dist/windows -maxdepth 1 -name '*-setup.exe' | head -1 || true)"
+              if [ -n "$setup" ]; then
+                cp "$setup" "dist/oxide-fab-${VERSION}-windows-${{ matrix.arch }}-setup.exe"
+              else
+                echo "::warning::Inno Setup 6 not found; shipping the zip only"
+              fi
+              ;;
+          esac
+          ls -la dist
 
-          nsh 0.5.x has no `nsh package --target tui`, and `nsh build` bundles
-          nothing: it writes only `app.json` (the app identity). This archive
-          therefore carries that file plus the whole crate the terminal host
-          mounts, which is what `nsh run --target tui` needs. With nsh
-          installed and the GTK/GStreamer libraries present:
+      - name: Screenshot the packaged app (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The inner script is single-quoted on purpose: $! and $pid belong to it.
+          # shellcheck disable=SC2016
+          xvfb-run -a -s "-screen 0 1600x1000x24" bash -c '
+            set -euo pipefail
+            OXIDE_DEMO=1 dist/linux/oxide-fab/oxidefab &
+            pid=$!
+            sleep 20
+            import -window root artifacts/desktop-linux.png
+            kill $pid || true'
+          test -s artifacts/desktop-linux.png
 
-            cd app
-            nsh run --target tui
+      - name: Screenshot the packaged app (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          OXIDE_DEMO=1 "dist/macos/oxide-fab.app/Contents/MacOS/oxidefab" &
+          pid=$!
+          sleep 20
+          swift scripts/window-shot.swift oxide-fab artifacts/desktop-macos.png
+          kill $pid || true
+          test -s artifacts/desktop-macos.png
 
-          The crate is self-contained (its Cargo.toml declares its own
-          workspace), so it builds from this directory.
-
-          CI builds the terminal host and runs the UI in an in-memory terminal
-          (`nsh test crates/oxide-ui --target tui`); see the release notes for
-          the limits of this packaging.
-          TXT
-          tar -C dist -czf "dist/oxide-ui-${VERSION}-tui.tar.gz" tui
+      - name: Screenshot the packaged app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:OXIDE_DEMO = "1"
+          $exe = Get-ChildItem "dist\windows\oxide-fab\*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "no executable in the Windows package" }
+          $app = Start-Process -FilePath $exe.FullName -PassThru
+          Start-Sleep -Seconds 20
+          Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+          Add-Type @"
+          using System;
+          using System.Runtime.InteropServices;
+          public class OxideWin {
+            [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
+            [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+          }
+          "@
+          $proc = Get-Process oxidefab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+          if (-not $proc) { throw "the packaged app has no window" }
+          [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
+          Start-Sleep -Seconds 2
+          $rect = New-Object OxideWin+RECT
+          [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          $bitmap = New-Object System.Drawing.Bitmap(($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top))
+          $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+          $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
+          $bitmap.Save("artifacts\desktop-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
+          Stop-Process -Id $app.Id -Force
 
       - uses: actions/upload-artifact@v4
         with:
-          name: oxide-ui-packages
+          name: desktop-${{ matrix.target }}
           path: |
-            dist/oxide-ui-*-web.tar.gz
-            dist/oxide-ui-*-tui.tar.gz
+            dist/oxide-fab-*.zip
+            dist/oxide-fab-*.tar.gz
+            dist/oxide-fab-*.exe
+            artifacts/desktop-*.png
           if-no-files-found: error
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: nsh-tui-tests
-          path: artifacts/nsh-tui-tests.xml
-          if-no-files-found: warn
 
   checksums:
     name: SHA256SUMS
-    needs: [binaries, nsh-packages]
+    needs: [binaries, desktop-packages]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -385,8 +442,8 @@ jobs:
           files: |
             dist/oxide-server-*.tar.gz
             dist/oxide-server-*.zip
-            dist/oxide-ui-*-web.tar.gz
-            dist/oxide-ui-*-tui.tar.gz
+            dist/oxide-fab-*.zip
+            dist/oxide-fab-*.tar.gz
             dist/SHA256SUMS.txt
             artifacts/chaos-report.md
           fail_on_unmatched_files: false
