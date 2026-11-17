@@ -1,0 +1,67 @@
+docs/architecture.md
+  s_d7695dc4fe1122::t_aa6eb6e262ced6 7-9,18-26,47-51,53-58,98-106,127-157
+docs/design/client-features.md
+  s_d7695dc4fe1122::t_c70e4d964b6953 1-188
+docs/decisions/007-analytics-projections.md
+  s_d7695dc4fe1122::t_dcc3aafa216054 1-122
+CHANGELOG.md
+  s_d7695dc4fe1122::t_e1d6771cb99e0f 52
+  s_d7695dc4fe1122::t_f76752e5feba9c 7-34,38-48
+  s_d7695dc4fe1122::t_b710f1c7438360 49-50
+docs/acceptance.md
+  s_d7695dc4fe1122::t_a6d3613a2b1ed1 10-15
+docs/chaos-report.md
+  s_d7695dc4fe1122::t_c4f6b8818dcd39 3,11-13,15,18,24,26-28,33-38,43,47-48,57-60
+docs/design/visual-proposals.md
+  s_d7695dc4fe1122::t_a4c0b476189b52 47
+  s_d7695dc4fe1122::t_d0c78c5efd3210 1-46,48-83
+README.md
+  s_d7695dc4fe1122::t_dd4bf23e0ccef4 251,260-261,265
+  s_d7695dc4fe1122::t_e3b323cc778b5c 7-11,15,48,52-61,64,67-69,77-102,311-317,331-334,339-342
+  s_d7695dc4fe1122::t_e68131be2e9c83 72-76
+  s_d7695dc4fe1122::t_25c01f017f2af9 104,106
+docs/decisions/006-scene-and-render-host.md
+  s_d7695dc4fe1122::t_fceff95e99b362 1-38,43-154
+  s_d7695dc4fe1122::t_b710f1c7438360 39-42
+docs/decisions/008-visual-direction.md
+  s_d7695dc4fe1122::t_a4c0b476189b52 1-50
+docs/acceptance-phase2.md
+  s_7a68cbf16bb9fc::t_e9fdf6e43518d4 102-104
+  s_d7695dc4fe1122::t_af148bd08723c9 34,36
+  s_7a68cbf16bb9fc::t_98fed8550da829 29
+  s_d7695dc4fe1122::t_2b2fe8506a922f 12-20
+  s_d7695dc4fe1122::t_57eeba64ecf414 5
+  s_7a68cbf16bb9fc::t_f8732976c29ca5 26
+  s_d7695dc4fe1122::t_ccc8b96e86655e 109-112
+  s_d7695dc4fe1122::t_7c41dd59320dc0 1-4,6-11,21-25,28,30-33,35,37-72,75-101,105-108,113-116
+  s_d7695dc4fe1122::t_6aca5b171bc1ed 27
+  s_d7695dc4fe1122::t_bd959ba053ca84 73
+  s_d7695dc4fe1122::t_e081a75f6e5893 74
+docs/decisions/005-phase2-desktop-scope.md
+  s_d7695dc4fe1122::t_e8590bb9dcdb84 1-33,36-145
+  s_d7695dc4fe1122::t_7ba13951294941 34-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "3372afaa71584658b6e5233ac7eb547d614a0f33",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    },
+    "s_d7695dc4fe1122": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_0c0e2838-da28-49df-be4c-f58165f7e7db",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
