@@ -1,0 +1,41 @@
+README.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 7-11,15,48,52-61,64,67-69,72-104,106,251,260-261,265,311-317,331-334,339-342
+docs/architecture.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 7-9,18-26,47-51,53-58,98-106,127-157
+docs/decisions/006-scene-and-render-host.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-154
+docs/acceptance-phase2.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-116
+docs/decisions/008-visual-direction.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-50
+docs/decisions/005-phase2-desktop-scope.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-145
+docs/design/client-features.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-188
+docs/acceptance.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 10-15
+docs/decisions/007-analytics-projections.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-122
+docs/chaos-report.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 3,11-13,15,18,24,26-28,33-38,43,47-48,57-60
+docs/design/visual-proposals.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 1-83
+CHANGELOG.md
+  s_7a68cbf16bb9fc::t_71957f85ab868c 7-34,38-52
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "1c0289c1b222d5a764a71de745fc2e72950022cd",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
