@@ -1,0 +1,35 @@
+scripts/validate-assets.sh
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-9
+tools/assets/make_icon.py
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-111
+tools/blender/build_fab.py
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-428
+scripts/window-shot.swift
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-42
+.gitignore
+  s_7a68cbf16bb9fc::t_3ad21d53649755 14-16
+scripts/desktop-package.sh
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-56
+scripts/linux-container-evidence.sh
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-47
+assets/fab/fab-manifest.json
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-904
+scripts/render-evidence.sh
+  s_7a68cbf16bb9fc::t_3ad21d53649755 1-35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "1fd81df8710cf7e394914f83df828a8813a49a2d",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
