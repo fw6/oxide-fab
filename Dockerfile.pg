@@ -1,6 +1,6 @@
 # PostgreSQL with pgBackRest, so the same cluster can archive WAL and take
 # full backups into the S3-compatible `oxide-backup` bucket.
-FROM postgres:16-bookworm
+FROM postgres:18-bookworm
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends pgbackrest ca-certificates \
