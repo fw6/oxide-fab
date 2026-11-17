@@ -1,0 +1,33 @@
+config/scenario.json
+  s_d7695dc4fe1122::t_cf735be58cb92d 19,31,43
+crates/oxide-core/src/metrics.rs
+  s_d7695dc4fe1122::t_cf735be58cb92d 314
+crates/oxide-core/src/model.rs
+  s_d7695dc4fe1122::t_cf735be58cb92d 138-142
+crates/oxide-core/src/lib.rs
+  s_d7695dc4fe1122::t_cf735be58cb92d 10
+crates/oxide-core/src/analytics.rs
+  s_d7695dc4fe1122::t_f4197c28f9f4b0 318-322,420-421,423-424,434-441,450,554,634-642,755-760
+  s_d7695dc4fe1122::t_3ba7afaf0bead3 470
+  s_d7695dc4fe1122::t_83ac9069718230 22,27-38,102-113,116-123,207-208,275-291,295-301,303-312,324-328,442-449,451-466,476,494-495
+  s_d7695dc4fe1122::t_9602d0d6b1221f 82,173-176,335-348,350-354
+  s_d7695dc4fe1122::t_058301ac3a196b 302
+  s_d7695dc4fe1122::t_fff7fd7af247a3 628
+  s_d7695dc4fe1122::t_c9deb752b8f26c 1-21,23-26,39-81,83-101,114-115,124-172,177-206,209-274,292-294,313-317,323,329-334,349,355-419,422,425-433,467-469,471-475,477-493,496-553,555-627,629-633,643-754,761-779
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "4f5b997cf6811b2e72658806efcaf18507df739d",
+  "prompts": {},
+  "sessions": {
+    "s_d7695dc4fe1122": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_0c0e2838-da28-49df-be4c-f58165f7e7db",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
