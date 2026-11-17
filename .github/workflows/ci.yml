@@ -223,10 +223,6 @@ jobs:
           '
           test -s artifacts/desktop-linux.png
 
-      - name: Stop the backend
-        if: runner.os == 'Linux'
-        run: docker compose down -v
-
       - name: Run the packaged app and screenshot (macOS)
         if: runner.os == 'macOS'
         shell: bash
@@ -244,10 +240,19 @@ jobs:
         shell: pwsh
         run: |
           $env:OXIDE_DEMO = "1"
-          $exe = Get-ChildItem "dist\windows\oxide-fab\*.exe" | Select-Object -First 1
-          if (-not $exe) { throw "no executable in the Windows package" }
-          $app = Start-Process -FilePath $exe.FullName -PassThru
+          $exe = Get-ChildItem "dist\windows\oxide-fab\oxidefab.exe"
+          if (-not $exe) { throw "no oxidefab.exe in the Windows package" }
+          Write-Host "package contents:"
+          Get-ChildItem "dist\windows\oxide-fab" | ForEach-Object { Write-Host "  $($_.Name)" }
+          Write-Host "starting $($exe.FullName)"
+          $app = Start-Process -FilePath $exe.FullName -WorkingDirectory $exe.DirectoryName -PassThru
           Start-Sleep -Seconds 20
+          if ($app.HasExited) {
+            Get-WinEvent -FilterHashtable @{ LogName = 'Application'; StartTime = (Get-Date).AddMinutes(-5) } -ErrorAction SilentlyContinue |
+              Where-Object { $_.Message -match 'oxidefab' } |
+              Select-Object -First 3 | Format-List TimeCreated, Id, LevelDisplayName, Message
+            throw "the packaged app exited with code $($app.ExitCode)"
+          }
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
           Add-Type @"
           using System;
