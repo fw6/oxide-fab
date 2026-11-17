@@ -1,9 +1,12 @@
-//! Headless UI tests: the dashboard mounts in the real engine, renders the
-//! floor from a stubbed API, and expands a lot into its wafers.
+//! Headless UI tests: the workbench mounts in the real engine, renders the
+//! shell and every domain from a stubbed API, and drives the same endpoints
+//! the scripts use.
 //!
-//! These tests run in `cargo test` and therefore in `nsh test`.
+//! These tests run in `cargo test` and therefore in `nsh test`. The 3D viewport
+//! is disabled here (`OXIDE_RENDER_DISABLE=1`): its wgpu path has its own
+//! headless evidence binary, and a UI test must not need a GPU.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use nsh_core::geometry::{Size, px};
 use nsh_engine::{EngineConfig, Root};
@@ -29,6 +32,11 @@ const SNAPSHOT: &str = r#"{
          {"id":"LOT-0001-W01","slot":1,"state":"queued","defect_info":null,"rework_count":0},
          {"id":"LOT-0001-W02","slot":2,"state":"queued","defect_info":null,"rework_count":0}
        ]}
+    ],
+    "dispatch": [
+      {"at_ms":1763290000000,"lot_id":"LOT-0001","step_no":1,"equipment_id":"CLN-01","priority":5,
+       "queue_position":0,"queue_len":1,"qualified_tools":["CLN-01","CLN-02"],"recipe_id":"RCP-CLEAN",
+       "rule":"优先级 → FIFO"}
     ]
   },
   "db": {"lots":1,"wafers":2,"events":7,"outbox_pending":0,"outbox_published":7,"published_events":7},
@@ -65,6 +73,55 @@ const DETAIL: &str = r#"{
   "events": []
 }"#;
 
+const ANALYTICS: &str = r#"{
+  "recipes": [
+    {"recipe_id":"RCP-CLEAN","version":3,"checksum":"abc123def456","steps":[1],"runs":1,
+     "verified_runs":1,"mismatched_runs":0,"last_run_ms":1763290000000,"status":"verified"}
+  ],
+  "qtime_limits": [
+    {"from_step":1,"to_step":2,"limit_ms":60000},
+    {"from_step":2,"to_step":3,"limit_ms":60000},
+    {"from_step":3,"to_step":4,"limit_ms":60000}
+  ],
+  "qtime_violations": [
+    {"lot_id":"LOT-0001","wafer_ids":["LOT-0001-W01"],"from_step":1,"to_step":2,"elapsed_ms":90000,
+     "limit_ms":60000,"occurred_at_ms":1763290000000,
+     "event_id":"11111111-1111-1111-1111-111111111111","equipment_id":"LIT-01"}
+  ],
+  "alarms": [
+    {"event_id":"22222222-2222-2222-2222-222222222222","equipment_id":"CLN-02","kind":"down",
+     "at_ms":1763290000000,"reason":"vacuum lost","down_ms":0}
+  ],
+  "kpi": {
+    "lots_created":1,"lots_completed":1,"wafers_created":2,"wafers_scrapped":0,
+    "first_pass_yield":1.0,"mean_cycle_time_ms":60000.0,"max_cycle_time_ms":60000,
+    "throughput_lots_per_hour":60.0,"wip_lots":0,
+    "window_start_ms":1763290000000,"window_end_ms":1763290060000,
+    "tools": [
+      {"equipment_id":"CLN-01","kind":"clean","busy_ms":6000,"down_ms":0,"track_ins":1,
+       "track_outs":1,"utilization":0.1,"availability":1.0}
+    ],
+    "defects": [],
+    "step_cycles": [
+      {"step_no":1,"planned_ms":6000,"actual_mean_ms":6000.0,"samples":1}
+    ],
+    "lot_cycles": [
+      {"lot_id":"LOT-0001","created_ms":1763290000000,"completed_ms":1763290060000,"cycle_ms":60000}
+    ]
+  },
+  "notes": [
+    {"metric":"周期时间","source":"lot_event","formula":"首事件到 lot_completed 的差"}
+  ]
+}"#;
+
+const MONITOR: &str = r#"{"components":[
+  {"name":"postgres","status":"up","detail":"PostgreSQL answers SELECT 1","latency_ms":1},
+  {"name":"greptimedb","status":"up","detail":"GreptimeDB answers SELECT 1","latency_ms":1},
+  {"name":"object-store","status":"up","detail":"minio answers","latency_ms":1},
+  {"name":"outbox-publisher","status":"up","detail":"outbox empty","latency_ms":1},
+  {"name":"oxide-api","status":"up","detail":"this API","latency_ms":1}
+],"checked_at_ms":1763290000000}"#;
+
 fn json(body: &str) -> StubResponse {
     let mut response = StubResponse::default();
     response.status = 200;
@@ -73,17 +130,18 @@ fn json(body: &str) -> StubResponse {
     response
 }
 
-fn dashboard() -> Headless {
-    dashboard_with_network().0
-}
-
-/// The same dashboard, plus the stub network, so a test can read what the app
-/// actually sent (`StubNetwork::requests`).
-fn dashboard_with_network() -> (Headless, Arc<StubNetwork>) {
-    dashboard_with_snapshot(SNAPSHOT)
+/// One process, one GPU policy: the UI tests never open the renderer.
+fn disable_render() {
+    static ONCE: OnceLock<()> = OnceLock::new();
+    ONCE.get_or_init(|| {
+        // SAFETY: tests set the same value once, before any app starts; no
+        // other thread reads the environment concurrently in this process.
+        unsafe { std::env::set_var("OXIDE_RENDER_DISABLE", "1") };
+    });
 }
 
 fn dashboard_with_snapshot(snapshot: &str) -> (Headless, Arc<StubNetwork>) {
+    disable_render();
     let network = Arc::new(StubNetwork::new([
         (
             "GET http://127.0.0.1:8080/api/snapshot".to_owned(),
@@ -97,25 +155,38 @@ fn dashboard_with_snapshot(snapshot: &str) -> (Headless, Arc<StubNetwork>) {
             "GET http://127.0.0.1:8080/api/lots/LOT-0001".to_owned(),
             json(DETAIL),
         ),
+        (
+            "GET http://127.0.0.1:8080/api/analytics".to_owned(),
+            json(ANALYTICS),
+        ),
+        (
+            "GET http://127.0.0.1:8080/api/monitor".to_owned(),
+            json(MONITOR),
+        ),
     ]));
     let mut config = EngineConfig::new(Root::of::<oxide_ui::App>());
     // A desktop window, so every panel is laid out and on screen.
     config.viewport = Size::new(px(1280.0), px(1600.0));
     config.network = Some(network.clone());
-    let app = Headless::start(config).expect("the dashboard starts");
+    let app = Headless::start(config).expect("the workbench starts");
     (app, network)
 }
 
+fn dashboard() -> Headless {
+    dashboard_with_snapshot(SNAPSHOT).0
+}
+
 #[test]
-fn the_dashboard_renders_queues_tools_and_the_lot_list() {
+fn the_workbench_renders_its_shell_and_the_mes_domain() {
     let mut app = dashboard();
     app.wait_for("text:氧化层 · oxide-fab").unwrap();
-    app.wait_for("text:四条工序队列").unwrap();
-    app.wait_for("text:机台灯号").unwrap();
+    app.wait_for("text:3D 工作台").unwrap();
+    app.wait_for("text:工序队列 · WIP").unwrap();
+    app.wait_for("text:机台三态 · E116 时长").unwrap();
+    app.wait_for("text:批次与逐片追溯").unwrap();
     app.wait_for("text:LOT-0001").unwrap();
     app.wait_for("text:CLN-01").unwrap();
-    app.wait_for("text:1. clean").unwrap();
-    app.wait_for("text:SECS/GEM 假机台").unwrap();
+    app.wait_for("text:L0 全厂 · 全厂").unwrap();
     let texts = app.screen().texts();
     assert!(
         texts.iter().any(|text| text.contains("排队")),
@@ -127,12 +198,36 @@ fn the_dashboard_renders_queues_tools_and_the_lot_list() {
 fn pressing_a_lot_expands_its_wafers_and_genealogy() {
     let mut app = dashboard();
     app.wait_for("text:LOT-0001").unwrap();
-    app.press("text:LOT-0001").unwrap();
+    app.press("text:LOT-0001 >> nth=1").unwrap();
     app.wait_for("text:W01").unwrap();
     app.wait_for("text:W02").unwrap();
     app.press("text:W01").unwrap();
     app.wait_for("text:RCP-CLEAN").unwrap();
     app.wait_for("text:CLN-01").unwrap();
+}
+
+#[test]
+fn the_quality_domain_shows_spc_alarms_qtime_and_recipes() {
+    let mut app = dashboard();
+    app.wait_for("text:LOT-0001").unwrap();
+    app.press("text:工艺质量").unwrap();
+    app.wait_for("text:SPC · 控制图").unwrap();
+    app.wait_for("text:告警与 OCAP 路径").unwrap();
+    app.wait_for("text:Q-time · 连续工序上限").unwrap();
+    app.wait_for("text:配方 · RMS 校验").unwrap();
+    app.wait_for("text:RCP-CLEAN v3 · abc123def4").unwrap();
+}
+
+#[test]
+fn the_cross_cutting_domain_shows_the_monitor_and_the_outbox() {
+    let mut app = dashboard();
+    app.wait_for("text:LOT-0001").unwrap();
+    app.press("text:横切 · 总线与 KPI").unwrap();
+    app.wait_for("text:组件巡查 · SmartFactory Monitor")
+        .unwrap();
+    app.wait_for("text:消息总线 · outbox 积压与追平").unwrap();
+    app.wait_for("text:KPI · 口径化指标").unwrap();
+    app.wait_for("text:postgres").unwrap();
 }
 
 /// The control bar is the UI half of §8: the buttons POST to the same
@@ -158,14 +253,13 @@ fn posted_urls(app: &mut Headless, network: &StubNetwork, want: usize) -> Vec<St
 
 #[test]
 fn the_control_bar_pauses_steps_and_changes_the_speed() {
-    let (mut app, network) = dashboard_with_network();
-    // Wait for the first snapshot, which also carries `sim.running = true`.
+    let (mut app, network) = dashboard_with_snapshot(SNAPSHOT);
     app.wait_for("text:LOT-0001").unwrap();
 
     app.press("text:暂停").unwrap();
     app.press("text:单步").unwrap();
-    app.press("text:−").unwrap(); // ×10 -> 5
-    app.press("text:+").unwrap(); // ×10 -> 20
+    app.press("text:− >> nth=0").unwrap(); // ×10 -> 5
+    app.press("text:+ >> nth=0").unwrap(); // ×10 -> 20
 
     let posted = posted_urls(&mut app, &network, 4);
     for expected in [
@@ -197,14 +291,23 @@ fn the_same_button_plays_a_paused_line() {
 }
 
 #[test]
-fn the_dashboard_survives_an_unreachable_api() {
-    // No routes: every fetch fails, so the shell must still render and say it
-    // is reconnecting instead of panicking.
+fn the_demo_starts_and_stops_without_jumping_back() {
+    let mut app = dashboard();
+    app.wait_for("text:LOT-0001").unwrap();
+    app.press("text:演示").unwrap();
+    app.wait_for("text:1/8 全厂 · MES").unwrap();
+    app.press("text:停止演示").unwrap();
+    app.wait_for("text:演示待启动").unwrap();
+}
+
+#[test]
+fn the_workbench_survives_an_unreachable_api() {
+    disable_render();
     let mut config = EngineConfig::new(Root::of::<oxide_ui::App>());
     config.network = Some(Arc::new(StubNetwork::new(
         Vec::<(String, StubResponse)>::new(),
     )));
-    let mut app = Headless::start(config).expect("the dashboard starts offline");
+    let mut app = Headless::start(config).expect("the workbench starts offline");
     app.wait_for("text:氧化层 · oxide-fab").unwrap();
     app.wait_for("text:重连中").unwrap();
 }

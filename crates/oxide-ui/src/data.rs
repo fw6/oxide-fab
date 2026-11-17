@@ -56,6 +56,9 @@ pub struct SimInfo {
     pub equipment: Vec<ToolView>,
     #[serde(default)]
     pub lots: Vec<LotView>,
+    /// Newest first: the decisions behind the current loads.
+    #[serde(default)]
+    pub dispatch: Vec<oxide_sim::DispatchDecision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -134,6 +137,57 @@ pub struct LotView {
     pub wafers: Vec<WaferView>,
 }
 
+/// The analytics endpoint, unchanged from the domain crate.
+pub use oxide_core::analytics::Analysis;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComponentHealth {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub latency_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MonitorResponse {
+    #[serde(default)]
+    pub components: Vec<ComponentHealth>,
+    #[serde(default)]
+    pub checked_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct OutboxTrace {
+    #[serde(default)]
+    pub event_id: String,
+    #[serde(default)]
+    pub topic: String,
+    #[serde(default)]
+    pub attempts: i32,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventTrace {
+    pub event_id: String,
+    pub event: PersistedEvent,
+    #[serde(default)]
+    pub outbox: Option<OutboxTrace>,
+    #[serde(default)]
+    pub greptime: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
+}
+
+pub use oxide_sim::whatif::{WhatIfComparison, WhatIfRun};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DbCounts {
     #[serde(default)]
@@ -172,6 +226,14 @@ pub struct SpcBucket {
     pub max_value: f64,
     pub ucl: f64,
     pub lcl: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TimelineResponse {
+    #[serde(default)]
+    pub samples: Vec<ChaosSample>,
+    #[serde(default)]
+    pub stats: OutboxStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
