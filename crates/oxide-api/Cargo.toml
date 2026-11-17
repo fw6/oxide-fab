@@ -7,6 +7,8 @@ license.workspace = true
 description = "Axum HTTP API for oxide-fab: snapshot, incremental event pull, genealogy, SPC, simulation control."
 
 [dependencies]
+chrono = { workspace = true }
+reqwest = { workspace = true }
 oxide-core.workspace = true
 oxide-sim.workspace = true
 oxide-store.workspace = true

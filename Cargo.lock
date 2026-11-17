@@ -1534,10 +1534,12 @@ name = "oxide-api"
 version = "0.2.0"
 dependencies = [
  "axum",
+ "chrono",
  "oxide-core",
  "oxide-secs",
  "oxide-sim",
  "oxide-store",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

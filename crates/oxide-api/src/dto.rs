@@ -3,6 +3,8 @@
 //! Everything is `serde`-derived so the dashboard and the scripts share one
 //! shape. Fields are additive only.
 
+use std::collections::BTreeMap;
+
 use oxide_core::genealogy::WaferGenealogy;
 use oxide_core::model::{Lot, Wafer};
 use oxide_secs::SecsStatus;
@@ -156,6 +158,43 @@ pub struct ActionResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ErrorResponse {
     pub error: String,
+}
+
+/// One event's whole trail: the log row, its outbox row and the `GreptimeDB`
+/// rows derived from it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventTrace {
+    pub event_id: String,
+    pub event: PersistedEvent,
+    pub outbox: Option<oxide_store::OutboxTrace>,
+    pub greptime: BTreeMap<String, Vec<serde_json::Value>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ComponentHealth {
+    pub name: String,
+    /// `up`, `degraded` or `down`.
+    pub status: String,
+    pub detail: String,
+    pub latency_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MonitorResponse {
+    pub components: Vec<ComponentHealth>,
+    pub checked_at_ms: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WhatIfRequest {
+    /// `priority` (default) or `fifo`.
+    #[serde(default)]
+    pub rule: Option<String>,
+    /// Add one tool of this kind before the variant runs.
+    #[serde(default)]
+    pub add_tool_kind: Option<String>,
+    #[serde(default)]
+    pub horizon_ms: Option<i64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

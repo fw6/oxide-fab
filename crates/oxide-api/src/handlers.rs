@@ -21,9 +21,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::dto::{
-    ActionResponse, BackupStatus, ConfigResponse, DashboardSnapshot, ErrorResponse, EventsResponse,
-    HealthResponse, HoldRequest, LotDetail, MergeRequest, ReplayRequest, RestoreStatus,
-    ReworkRequest, ScrapRequest, SpcResponse, SplitRequest, StatsResponse, TimelineResponse,
+    ActionResponse, BackupStatus, ComponentHealth, ConfigResponse, DashboardSnapshot,
+    ErrorResponse, EventTrace, EventsResponse, HealthResponse, HoldRequest, LotDetail,
+    MergeRequest, MonitorResponse, ReplayRequest, RestoreStatus, ReworkRequest, ScrapRequest,
+    SpcResponse, SplitRequest, StatsResponse, TimelineResponse, WhatIfRequest,
 };
 use crate::{AppState, Shared};
 
@@ -112,9 +113,218 @@ pub async fn index() -> Json<Value> {
         "endpoints": [
             "/healthz", "/api/snapshot", "/api/events?since=0", "/api/lots/{id}",
             "/api/spc", "/api/outbox/timeline", "/api/secs", "/api/backup",
-            "/api/restore", "/api/stats", "/admin/replay"
+            "/api/restore", "/api/analytics", "/api/monitor", "/api/events/{event_id}",
+            "/api/what-if", "/admin/replay"
         ],
     }))
+}
+
+/// Recipes, Q-time, dispatch and KPI: everything derived from the log.
+pub async fn analytics(
+    State(state): State<Shared>,
+) -> Result<Json<oxide_core::analytics::Analysis>, ApiError> {
+    let persisted = state.store.all_events().await?;
+    let events: Vec<DomainEvent> = persisted.into_iter().map(|row| row.event).collect();
+    Ok(Json(oxide_core::analytics::analyse(
+        &events,
+        state.scenario.as_ref(),
+    )))
+}
+
+/// One event, its outbox row and the time-series rows it produced.
+pub async fn event_trace(
+    State(state): State<Shared>,
+    Path(event_id): Path<String>,
+) -> Result<Json<EventTrace>, ApiError> {
+    let id = uuid::Uuid::parse_str(&event_id)
+        .map_err(|_| ApiError::BadRequest(format!("{event_id} is not an event id")))?;
+    let Some(event) = state.store.event_by_id(id).await? else {
+        return Err(ApiError::NotFound(format!("no event {event_id}")));
+    };
+    let outbox = state.store.outbox_trace(id).await?;
+    let greptime = state.greptime.rows_for_event(id).await.unwrap_or_default();
+    Ok(Json(EventTrace {
+        event_id,
+        event,
+        outbox,
+        greptime,
+    }))
+}
+
+/// Component inspection: PostgreSQL, `GreptimeDB`, the object store, the outbox
+/// publisher and this API. A component that is down is reported, not thrown.
+pub async fn monitor(State(state): State<Shared>) -> Json<MonitorResponse> {
+    let started_at = std::time::Instant::now();
+    let minio_url =
+        std::env::var("OXIDE_MINIO_URL").unwrap_or_else(|_| "http://minio:9000".to_owned());
+    let (database, greptime, object_store, outbox) = tokio::join!(
+        timed(|| async {
+            if state.store.ping().await {
+                ("up", "PostgreSQL answers SELECT 1".to_owned())
+            } else {
+                ("down", "PostgreSQL does not answer".to_owned())
+            }
+        }),
+        timed(|| async {
+            if state.greptime.ping().await {
+                ("up", "GreptimeDB answers SELECT 1".to_owned())
+            } else {
+                ("down", "GreptimeDB does not answer".to_owned())
+            }
+        }),
+        timed(|| async { object_store_health(&minio_url).await }),
+        timed(|| async {
+            match state.store.outbox_health().await {
+                Ok(health) if health.pending == 0 => (
+                    "up",
+                    format!(
+                        "outbox empty; last delivery {}",
+                        age_text(health.last_published_age_ms)
+                    ),
+                ),
+                Ok(health)
+                    if health.last_published_age_ms >= 0
+                        && health.last_published_age_ms < 30_000 =>
+                {
+                    (
+                        "degraded",
+                        format!(
+                            "{} pending, oldest {}; publisher delivered {} ago",
+                            health.pending,
+                            age_text(health.oldest_pending_age_ms),
+                            age_text(health.last_published_age_ms)
+                        ),
+                    )
+                }
+                Ok(health) => (
+                    "down",
+                    format!(
+                        "{} pending, oldest {}; publisher last delivered {}",
+                        health.pending,
+                        age_text(health.oldest_pending_age_ms),
+                        age_text(health.last_published_age_ms)
+                    ),
+                ),
+                Err(error) => ("down", format!("outbox unreadable: {error}")),
+            }
+        }),
+    );
+    let mut components = vec![
+        component("postgres", database),
+        component("greptimedb", greptime),
+        component("object-store", object_store),
+        component("outbox-publisher", outbox),
+        ComponentHealth {
+            name: "oxide-api".to_owned(),
+            status: "up".to_owned(),
+            detail: format!(
+                "this API; up {}",
+                crate::handlers::uptime_text(state.started_at.elapsed())
+            ),
+            latency_ms: i64::try_from(started_at.elapsed().as_millis()).unwrap_or(i64::MAX),
+        },
+    ];
+    if let Some(secs) = &state.secs {
+        let status = secs.status();
+        components.push(ComponentHealth {
+            name: "secs-host".to_owned(),
+            status: if status.host_connected { "up" } else { "down" }.to_owned(),
+            detail: format!(
+                "HSMS-SS link; S1F1 {}, S6F11 {}, spool {}",
+                status.s1f1_ok, status.s6f11_sent, status.spool_depth
+            ),
+            latency_ms: 0,
+        });
+    }
+    Json(MonitorResponse {
+        components,
+        checked_at_ms: chrono::Utc::now().timestamp_millis(),
+    })
+}
+
+/// Offline what-if: replay the current snapshot twice in isolation.
+pub async fn what_if(
+    State(state): State<Shared>,
+    Json(request): Json<WhatIfRequest>,
+) -> Result<Json<oxide_sim::whatif::WhatIfComparison>, ApiError> {
+    let (scenario, snapshot) = {
+        let sim = lock_sim(&state)?;
+        (state.scenario.as_ref().clone(), sim.snapshot())
+    };
+    let options = oxide_sim::whatif::WhatIfOptions {
+        rule: match request.rule.as_deref() {
+            Some("fifo") => oxide_sim::DispatchRule::Fifo,
+            _ => oxide_sim::DispatchRule::PriorityThenFifo,
+        },
+        add_tool_kind: request.add_tool_kind.clone(),
+        horizon_ms: request.horizon_ms.unwrap_or(7_200_000),
+    };
+    let comparison = tokio::task::spawn_blocking(move || {
+        oxide_sim::whatif::compare(&scenario, &snapshot, &options)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("what-if task failed: {error}")))??;
+    Ok(Json(comparison))
+}
+
+/// `12.3 s` for the monitor's detail lines.
+fn uptime_text(uptime: std::time::Duration) -> String {
+    format!("{:.1} s", uptime.as_secs_f64())
+}
+
+fn component(name: &str, result: (i64, (&str, String))) -> ComponentHealth {
+    ComponentHealth {
+        name: name.to_owned(),
+        status: result.1.0.to_owned(),
+        detail: result.1.1,
+        latency_ms: result.0,
+    }
+}
+
+async fn timed<F, Fut>(check: F) -> (i64, (&'static str, String))
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = (&'static str, String)>,
+{
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(std::time::Duration::from_millis(1_500), check())
+        .await
+        .unwrap_or(("down", "timed out after 1500 ms".to_owned()));
+    (
+        i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+        result,
+    )
+}
+
+async fn object_store_health(url: &str) -> (&'static str, String) {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let client = CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(1_200))
+            .build()
+            .expect("an HTTP client")
+    });
+    let target = format!("{}/minio/health/live", url.trim_end_matches('/'));
+    match client.get(&target).send().await {
+        Ok(response) if response.status().is_success() => {
+            ("up", format!("{url} answers /minio/health/live"))
+        }
+        Ok(response) => (
+            "degraded",
+            format!("{url} answered HTTP {}", response.status()),
+        ),
+        Err(error) => ("down", format!("{url}: {error}")),
+    }
+}
+
+fn age_text(age_ms: i64) -> String {
+    if age_ms < 0 {
+        "never".to_owned()
+    } else if age_ms < 1_000 {
+        format!("{age_ms} ms")
+    } else {
+        format!("{:.1} s", age_ms as f64 / 1000.0)
+    }
 }
 
 pub async fn health(State(state): State<Shared>) -> Response {

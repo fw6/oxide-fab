@@ -41,6 +41,7 @@ pub fn router(state: Shared) -> Router {
     let api = Router::new()
         .route("/snapshot", get(handlers::snapshot))
         .route("/events", get(handlers::events_since))
+        .route("/events/{event_id}", get(handlers::event_trace))
         .route("/lots/{lot_id}", get(handlers::lot_detail))
         .route("/lots/{lot_id}/hold", post(handlers::hold_lot))
         .route("/lots/{lot_id}/release", post(handlers::release_lot))
@@ -64,6 +65,9 @@ pub fn router(state: Shared) -> Router {
         .route("/restore", get(handlers::restore_status))
         .route("/stats", get(handlers::stats))
         .route("/config", get(handlers::config))
+        .route("/analytics", get(handlers::analytics))
+        .route("/monitor", get(handlers::monitor))
+        .route("/what-if", post(handlers::what_if))
         .route_layer(axum::middleware::from_fn_with_state(
             Arc::clone(&state),
             handlers::require_database,
