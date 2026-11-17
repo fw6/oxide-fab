@@ -1,0 +1,30 @@
+# CI-only overlay: lets the three locally built images reuse their layers across
+# runs through the GitHub Actions cache.
+#
+#   docker compose -f docker-compose.yml -f .github/compose-cache.yml up -d --wait
+#
+# It is a separate file on purpose: `type=gha` only resolves inside a GitHub
+# Actions job, and `docker compose up` for local development must keep working
+# without it. Layer caching is `mode=min` so the repository's 10 GB cache budget
+# is not spent on export layers.
+services:
+  postgres:
+    build:
+      cache_from:
+        - type=gha,scope=postgres
+      cache_to:
+        - type=gha,scope=postgres,mode=min
+
+  minio:
+    build:
+      cache_from:
+        - type=gha,scope=minio
+      cache_to:
+        - type=gha,scope=minio,mode=min
+
+  oxide:
+    build:
+      cache_from:
+        - type=gha,scope=oxide
+      cache_to:
+        - type=gha,scope=oxide,mode=min

@@ -16,6 +16,13 @@ on:
 permissions:
   contents: read
 
+# A push that supersedes a pull request run cancels it: the matrix costs minutes
+# per OS and the older commit is already stale. Pushes to main are left alone so
+# every merged commit keeps its verification, and release.yml passes its own ref.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
@@ -84,7 +91,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: crates/oxide-ui
+          # The job lints and tests the UI workspace, but validate-assets.sh runs
+          # oxide-render from the root workspace; both targets are cached so the
+          # second one is not a cold build.
+          workspaces: |
+            . -> target
+            crates/oxide-ui -> target
 
       - name: Native libraries for the desktop targets
         run: |
@@ -349,7 +361,9 @@ jobs:
         run: cp .env.example .env
 
       - name: Build and start the stack
-        run: docker compose up -d --wait
+        # The overlay gives the three built images a GitHub Actions layer cache;
+        # outside CI it is not applied, so local compose is unaffected.
+        run: docker compose -f docker-compose.yml -f .github/compose-cache.yml up -d --wait
 
       - name: Migrations (idempotent, safe to rerun)
         run: docker compose exec -T oxide /oxide --migrate-only
