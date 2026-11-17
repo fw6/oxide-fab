@@ -1,0 +1,29 @@
+Cargo.toml
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 17
+config/scenario.json
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 19,31,43
+crates/oxide-core/src/metrics.rs
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 314
+crates/oxide-core/src/analytics.rs
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 1-779
+crates/oxide-core/src/model.rs
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 138-142
+crates/oxide-core/src/lib.rs
+  s_7a68cbf16bb9fc::t_7046e0256a9b65 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "ea5df527646867a97e14a33dea1c428745f9db00",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
