@@ -1,0 +1,30 @@
+crates/oxide-sim/src/lib.rs
+  s_f372dbf1e2cdb4::t_824913abce0bce 1166,1754,1756,1758,1760,1762-1763
+  s_f372dbf1e2cdb4::t_9d32e3f3f5c322 1170-1171,1173,1176,1183,1186,1193,1195-1211
+crates/oxide-api/src/handlers.rs
+  s_a43e72dd02627f::t_bbe6e293e138ab 70-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "2641febc82964786bb044798dd07863d8c1dcb22",
+  "prompts": {},
+  "sessions": {
+    "s_a43e72dd02627f": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_69c96b8b-b051-4fa8-a8db-efb4b71913de",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    },
+    "s_f372dbf1e2cdb4": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_5debd7c2-9648-43d3-998f-ff54610cfc94",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
