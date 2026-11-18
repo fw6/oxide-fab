@@ -148,7 +148,9 @@ jobs:
 
   desktop:
     name: desktop ${{ matrix.target }} (package, run, screenshot)
-    needs: [lint-and-test, ui]
+    # Only the lint gate: these jobs build the UI themselves, so waiting for the
+    # UI lint job would put two independent matrices end to end.
+    needs: lint-and-test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
     strategy:
@@ -351,7 +353,8 @@ jobs:
 
   integration:
     name: docker compose, smoke, chaos
-    needs: [lint-and-test, ui]
+    # The stack is built from source in Docker; it does not use the UI workspace.
+    needs: lint-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -361,9 +364,7 @@ jobs:
         run: cp .env.example .env
 
       - name: Build and start the stack
-        # The overlay gives the three built images a GitHub Actions layer cache;
-        # outside CI it is not applied, so local compose is unaffected.
-        run: docker compose -f docker-compose.yml -f .github/compose-cache.yml up -d --wait
+        run: docker compose up -d --wait
 
       - name: Migrations (idempotent, safe to rerun)
         run: docker compose exec -T oxide /oxide --migrate-only
