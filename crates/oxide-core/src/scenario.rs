@@ -4,6 +4,8 @@
 //! and how much material is released. It is data, not code: changing the
 //! scenario changes the demo without a rebuild.
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 
 use crate::model::{Equipment, Product, Recipe, Route};
@@ -19,6 +21,7 @@ pub struct EquipmentSpec {
 }
 
 impl EquipmentSpec {
+    #[must_use]
     pub fn to_equipment(&self) -> Equipment {
         Equipment {
             id: self.id.clone(),
@@ -39,6 +42,7 @@ pub struct RecipeSpec {
 }
 
 impl RecipeSpec {
+    #[must_use]
     pub fn to_recipe(&self) -> Recipe {
         Recipe::new(&self.id, self.version, &self.body)
     }
@@ -122,44 +126,113 @@ impl Scenario {
     }
 
     /// Check the scenario is coherent before the fab starts.
-    pub fn validate(&self) -> Result<(), String> {
+    ///
+    /// Returns the first inconsistency found: a route step without a recipe or
+    /// a qualified tool, or a non-positive wafer count.
+    pub fn validate(&self) -> Result<(), ScenarioError> {
         if self.route.steps.is_empty() {
-            return Err("route has no steps".to_owned());
+            return Err(ScenarioError::NoSteps);
         }
         for step in &self.route.steps {
             if self.recipe(&step.recipe_id).is_none() {
-                return Err(format!(
-                    "step {} references unknown recipe {}",
-                    step.step_no, step.recipe_id
-                ));
+                return Err(ScenarioError::UnknownRecipe {
+                    step_no: step.step_no,
+                    recipe_id: step.recipe_id.clone(),
+                });
             }
             if step.equipment_qualification.is_empty() {
-                return Err(format!(
-                    "no tool of kind {} is qualified for {}",
-                    step.equipment_kind, step.recipe_id
-                ));
+                return Err(ScenarioError::NoQualifiedTool {
+                    step_no: step.step_no,
+                    equipment_kind: step.equipment_kind.clone(),
+                    recipe_id: step.recipe_id.clone(),
+                });
             }
             for tool_id in &step.equipment_qualification {
                 let tool = self
                     .equipment
                     .iter()
                     .find(|tool| &tool.id == tool_id)
-                    .ok_or_else(|| format!("step {} names unknown tool {tool_id}", step.step_no))?;
+                    .ok_or_else(|| ScenarioError::UnknownTool {
+                        step_no: step.step_no,
+                        tool_id: tool_id.clone(),
+                    })?;
                 if tool.kind != step.equipment_kind || !tool.qualification.contains(&step.recipe_id)
                 {
-                    return Err(format!(
-                        "tool {tool_id} is not qualified for step {}",
-                        step.step_no
-                    ));
+                    return Err(ScenarioError::UnqualifiedTool {
+                        step_no: step.step_no,
+                        tool_id: tool_id.clone(),
+                    });
                 }
             }
         }
         if self.wafers_per_lot <= 0 {
-            return Err("wafers_per_lot must be positive".to_owned());
+            return Err(ScenarioError::NonPositiveWaferCount {
+                wafers_per_lot: self.wafers_per_lot,
+            });
         }
         Ok(())
     }
 }
+
+/// Why a scenario cannot be run.
+///
+/// A typed error, not a `String`: the server logs it and the API reports it,
+/// and a caller that wants to react to "unknown recipe" should not have to
+/// match on message text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ScenarioError {
+    NoSteps,
+    UnknownRecipe {
+        step_no: i32,
+        recipe_id: String,
+    },
+    NoQualifiedTool {
+        step_no: i32,
+        equipment_kind: String,
+        recipe_id: String,
+    },
+    UnknownTool {
+        step_no: i32,
+        tool_id: String,
+    },
+    UnqualifiedTool {
+        step_no: i32,
+        tool_id: String,
+    },
+    NonPositiveWaferCount {
+        wafers_per_lot: i32,
+    },
+}
+
+impl fmt::Display for ScenarioError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ScenarioError::NoSteps => write!(f, "route has no steps"),
+            ScenarioError::UnknownRecipe { step_no, recipe_id } => {
+                write!(f, "step {step_no} references unknown recipe {recipe_id}")
+            }
+            ScenarioError::NoQualifiedTool {
+                step_no,
+                equipment_kind,
+                recipe_id,
+            } => write!(
+                f,
+                "no tool of kind {equipment_kind} is qualified for {recipe_id} (step {step_no})"
+            ),
+            ScenarioError::UnknownTool { step_no, tool_id } => {
+                write!(f, "step {step_no} names unknown tool {tool_id}")
+            }
+            ScenarioError::UnqualifiedTool { step_no, tool_id } => {
+                write!(f, "tool {tool_id} is not qualified for step {step_no}")
+            }
+            ScenarioError::NonPositiveWaferCount { wafers_per_lot } => {
+                write!(f, "wafers_per_lot must be positive, is {wafers_per_lot}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScenarioError {}
 
 #[cfg(test)]
 mod tests {
@@ -197,14 +270,26 @@ mod tests {
     fn a_step_naming_an_unqualified_tool_is_rejected() {
         let mut scenario = sample();
         scenario.route.steps[0].equipment_qualification = vec!["ETC-01".to_owned()];
-        assert!(scenario.validate().is_err());
+        assert_eq!(
+            scenario.validate(),
+            Err(ScenarioError::UnqualifiedTool {
+                step_no: 1,
+                tool_id: "ETC-01".to_owned(),
+            })
+        );
     }
 
     #[test]
     fn an_unknown_recipe_is_rejected() {
         let mut scenario = sample();
         scenario.route.steps[0].recipe_id = "RCP-NOPE".to_owned();
-        assert!(scenario.validate().is_err());
+        assert_eq!(
+            scenario.validate(),
+            Err(ScenarioError::UnknownRecipe {
+                step_no: 1,
+                recipe_id: "RCP-NOPE".to_owned(),
+            })
+        );
     }
 
     #[test]
@@ -213,6 +298,12 @@ mod tests {
         for tool in &mut scenario.equipment {
             tool.qualification.clear();
         }
-        assert!(scenario.validate().is_err());
+        assert_eq!(
+            scenario.validate(),
+            Err(ScenarioError::UnqualifiedTool {
+                step_no: 1,
+                tool_id: "CLN-01".to_owned(),
+            })
+        );
     }
 }

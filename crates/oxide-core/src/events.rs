@@ -11,6 +11,7 @@ use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::model::{LotId, WaferId};
+use crate::string_enum::string_enum;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -32,48 +33,23 @@ pub enum EventKind {
     RecipeVerified,
 }
 
-impl EventKind {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            EventKind::LotCreated => "lot_created",
-            EventKind::LotQueued => "lot_queued",
-            EventKind::LotSplit => "lot_split",
-            EventKind::LotMerged => "lot_merged",
-            EventKind::LotHeld => "lot_held",
-            EventKind::LotReleased => "lot_released",
-            EventKind::TrackIn => "track_in",
-            EventKind::TrackOut => "track_out",
-            EventKind::TrackOutDuplicate => "track_out_duplicate",
-            EventKind::ReworkStarted => "rework_started",
-            EventKind::WaferScrapped => "wafer_scrapped",
-            EventKind::LotCompleted => "lot_completed",
-            EventKind::EquipmentDown => "equipment_down",
-            EventKind::EquipmentUp => "equipment_up",
-            EventKind::RecipeVerified => "recipe_verified",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        Some(match value {
-            "lot_created" => EventKind::LotCreated,
-            "lot_queued" => EventKind::LotQueued,
-            "lot_split" => EventKind::LotSplit,
-            "lot_merged" => EventKind::LotMerged,
-            "lot_held" => EventKind::LotHeld,
-            "lot_released" => EventKind::LotReleased,
-            "track_in" => EventKind::TrackIn,
-            "track_out" => EventKind::TrackOut,
-            "track_out_duplicate" => EventKind::TrackOutDuplicate,
-            "rework_started" => EventKind::ReworkStarted,
-            "wafer_scrapped" => EventKind::WaferScrapped,
-            "lot_completed" => EventKind::LotCompleted,
-            "equipment_down" => EventKind::EquipmentDown,
-            "equipment_up" => EventKind::EquipmentUp,
-            "recipe_verified" => EventKind::RecipeVerified,
-            _ => return None,
-        })
-    }
-}
+string_enum!(EventKind {
+    LotCreated => "lot_created",
+    LotQueued => "lot_queued",
+    LotSplit => "lot_split",
+    LotMerged => "lot_merged",
+    LotHeld => "lot_held",
+    LotReleased => "lot_released",
+    TrackIn => "track_in",
+    TrackOut => "track_out",
+    TrackOutDuplicate => "track_out_duplicate",
+    ReworkStarted => "rework_started",
+    WaferScrapped => "wafer_scrapped",
+    LotCompleted => "lot_completed",
+    EquipmentDown => "equipment_down",
+    EquipmentUp => "equipment_up",
+    RecipeVerified => "recipe_verified",
+});
 
 /// One immutable domain event.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -107,6 +83,7 @@ impl DomainEvent {
         }
     }
 
+    #[must_use]
     pub fn with_wafer(mut self, wafer_id: impl Into<WaferId>) -> Self {
         self.wafer_id = Some(wafer_id.into());
         self
@@ -116,14 +93,13 @@ impl DomainEvent {
         self.payload
             .get("wafers")
             .and_then(Value::as_array)
-            .map(|values| {
+            .map_or_default(|values| {
                 values
                     .iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
             })
-            .unwrap_or_default()
     }
 
     pub fn step_no(&self) -> Option<i32> {
@@ -133,14 +109,22 @@ impl DomainEvent {
             .map(|v| v as i32)
     }
 
+    #[must_use]
     pub fn equipment_id(&self) -> Option<&str> {
         self.payload.get("equipment_id").and_then(Value::as_str)
+    }
+
+    /// The process program the step ran.
+    #[must_use]
+    pub fn recipe_id(&self) -> Option<&str> {
+        self.payload.get("recipe_id").and_then(Value::as_str)
     }
 }
 
 // Payload constructors keep the wire shape in one place: the projection and
 // the metric derivation both read these keys.
 
+#[must_use]
 pub fn lot_created_payload(
     product_id: &str,
     route_id: &str,
@@ -156,44 +140,62 @@ pub fn lot_created_payload(
     })
 }
 
+#[must_use]
 pub fn lot_queued_payload(step_no: i32) -> Value {
     json!({ "step_no": step_no })
 }
 
-pub fn track_in_payload(
-    step_no: i32,
-    equipment_id: &str,
-    recipe_id: &str,
-    wafers: &[WaferId],
-) -> Value {
+/// What a tool reports when it loads a lot on a step.
+///
+/// One value instead of four positional parameters: the payload constructor
+/// and the state machine take the same struct, so the wire shape cannot drift
+/// from what the transition validated.
+#[derive(Debug, Clone, Copy)]
+pub struct TrackInReport<'a> {
+    pub step_no: i32,
+    pub equipment_id: &'a str,
+    pub recipe_id: &'a str,
+    pub wafers: &'a [WaferId],
+}
+
+/// What a tool reports when a step finishes.
+#[derive(Debug, Clone, Copy)]
+pub struct TrackOutReport<'a> {
+    pub step_no: i32,
+    pub equipment_id: &'a str,
+    pub recipe_id: &'a str,
+    /// The checksum the tool verified before running the program.
+    pub recipe_checksum: &'a str,
+    pub wafers: &'a [WaferId],
+    pub duration_ms: i64,
+    /// The measured value, on metrology steps.
+    pub measured: Option<f64>,
+}
+
+#[must_use]
+pub fn track_in_payload(report: &TrackInReport<'_>) -> Value {
     json!({
-        "step_no": step_no,
-        "equipment_id": equipment_id,
-        "recipe_id": recipe_id,
-        "wafers": wafers,
+        "step_no": report.step_no,
+        "equipment_id": report.equipment_id,
+        "recipe_id": report.recipe_id,
+        "wafers": report.wafers,
     })
 }
 
-pub fn track_out_payload(
-    step_no: i32,
-    equipment_id: &str,
-    recipe_id: &str,
-    recipe_checksum: &str,
-    wafers: &[WaferId],
-    duration_ms: i64,
-    measured: Option<f64>,
-) -> Value {
+#[must_use]
+pub fn track_out_payload(report: &TrackOutReport<'_>) -> Value {
     json!({
-        "step_no": step_no,
-        "equipment_id": equipment_id,
-        "recipe_id": recipe_id,
-        "recipe_checksum": recipe_checksum,
-        "wafers": wafers,
-        "duration_ms": duration_ms,
-        "measured": measured,
+        "step_no": report.step_no,
+        "equipment_id": report.equipment_id,
+        "recipe_id": report.recipe_id,
+        "recipe_checksum": report.recipe_checksum,
+        "wafers": report.wafers,
+        "duration_ms": report.duration_ms,
+        "measured": report.measured,
     })
 }
 
+#[must_use]
 pub fn equipment_down_payload(equipment_id: &str, kind: &str, reason: &str, alid: u32) -> Value {
     json!({
         "equipment_id": equipment_id,
@@ -203,6 +205,7 @@ pub fn equipment_down_payload(equipment_id: &str, kind: &str, reason: &str, alid
     })
 }
 
+#[must_use]
 pub fn equipment_up_payload(equipment_id: &str, kind: &str, down_ms: i64) -> Value {
     json!({
         "equipment_id": equipment_id,
@@ -211,6 +214,7 @@ pub fn equipment_up_payload(equipment_id: &str, kind: &str, down_ms: i64) -> Val
     })
 }
 
+#[must_use]
 pub fn split_payload(parent: &str, children: &[(String, Vec<WaferId>)], step_no: i32) -> Value {
     let children: Vec<Value> = children
         .iter()
@@ -219,6 +223,7 @@ pub fn split_payload(parent: &str, children: &[(String, Vec<WaferId>)], step_no:
     json!({ "parent_lot_id": parent, "children": children, "step_no": step_no })
 }
 
+#[must_use]
 pub fn merged_payload(sources: &[String], target: &str, step_no: i32, wafers: &[WaferId]) -> Value {
     json!({
         "sources": sources,

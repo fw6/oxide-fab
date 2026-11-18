@@ -11,11 +11,7 @@ use serde_json::Value;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Snapshot {
     #[serde(default)]
-    pub steps: Vec<StepView>,
-    #[serde(default)]
-    pub equipment: Vec<ToolView>,
-    #[serde(default)]
-    pub lots: Vec<LotView>,
+    pub sim: SimInfo,
     #[serde(default)]
     pub db: DbCounts,
     #[serde(default)]
@@ -36,10 +32,10 @@ pub struct Snapshot {
     pub spc_source: String,
     #[serde(default)]
     pub chaos: Vec<ChaosSample>,
-    #[serde(default)]
-    pub sim: SimInfo,
 }
 
+/// The floor and the engine's clock, as `/api/snapshot` reports them under
+/// `sim`. The API projects steps, tools and lots exactly once, here.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct SimInfo {
     #[serde(default)]
@@ -54,6 +50,15 @@ pub struct SimInfo {
     pub total_lots: usize,
     #[serde(default)]
     pub persisted_events: u64,
+    #[serde(default)]
+    pub steps: Vec<StepView>,
+    #[serde(default)]
+    pub equipment: Vec<ToolView>,
+    #[serde(default)]
+    pub lots: Vec<LotView>,
+    /// Newest first: the decisions behind the current loads.
+    #[serde(default)]
+    pub dispatch: Vec<oxide_sim::DispatchDecision>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -132,6 +137,57 @@ pub struct LotView {
     pub wafers: Vec<WaferView>,
 }
 
+/// The analytics endpoint, unchanged from the domain crate.
+pub use oxide_core::analytics::Analysis;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ComponentHealth {
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub status: String,
+    #[serde(default)]
+    pub detail: String,
+    #[serde(default)]
+    pub latency_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct MonitorResponse {
+    #[serde(default)]
+    pub components: Vec<ComponentHealth>,
+    #[serde(default)]
+    pub checked_at_ms: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct OutboxTrace {
+    #[serde(default)]
+    pub event_id: String,
+    #[serde(default)]
+    pub topic: String,
+    #[serde(default)]
+    pub attempts: i32,
+    #[serde(default)]
+    pub created_at: String,
+    #[serde(default)]
+    pub published_at: Option<String>,
+    #[serde(default)]
+    pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EventTrace {
+    pub event_id: String,
+    pub event: PersistedEvent,
+    #[serde(default)]
+    pub outbox: Option<OutboxTrace>,
+    #[serde(default)]
+    pub greptime: std::collections::BTreeMap<String, Vec<serde_json::Value>>,
+}
+
+pub use oxide_sim::whatif::{WhatIfComparison, WhatIfRun};
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DbCounts {
     #[serde(default)]
@@ -170,6 +226,14 @@ pub struct SpcBucket {
     pub max_value: f64,
     pub ucl: f64,
     pub lcl: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TimelineResponse {
+    #[serde(default)]
+    pub samples: Vec<ChaosSample>,
+    #[serde(default)]
+    pub stats: OutboxStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -354,7 +418,14 @@ pub struct StepRecord {
 /// Fold one event into the lots and tools. Returns `false` when the event
 /// mentions something this view does not know, which means a full snapshot is
 /// needed.
-pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &Event) -> bool {
+///
+/// One arm per event kind, kept together so the vocabulary and the fold can be
+/// reviewed side by side.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one arm per event kind; splitting scatters the fold"
+)]
+pub fn apply_event(lots: &mut [LotView], tools: &mut [ToolView], event: &Event) -> bool {
     let step_no = event
         .payload
         .get("step_no")
@@ -369,14 +440,13 @@ pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &E
         .payload
         .get("wafers")
         .and_then(Value::as_array)
-        .map(|items| {
+        .map_or_default(|items| {
             items
                 .iter()
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect()
-        })
-        .unwrap_or_default();
+        });
 
     match event.kind.as_str() {
         "lot_created" => return false,
@@ -403,13 +473,13 @@ pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &E
                             wafer.state = "processing".to_owned();
                         }
                     }
-                    if let Some(id) = &equipment_id {
-                        if let Some(tool) = tools.iter_mut().find(|tool| &tool.id == id) {
-                            tool.state = "running".to_owned();
-                            tool.light = "green".to_owned();
-                            tool.current_lot = Some(lot.id.clone());
-                            tool.current_step = step_no;
-                        }
+                    if let Some(id) = &equipment_id
+                        && let Some(tool) = tools.iter_mut().find(|tool| &tool.id == id)
+                    {
+                        tool.state = "running".to_owned();
+                        tool.light = "green".to_owned();
+                        tool.current_lot = Some(lot.id.clone());
+                        tool.current_step = step_no;
                     }
                 }
                 "track_out" => {
@@ -419,14 +489,14 @@ pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &E
                         }
                     }
                     lot.state = "waiting".to_owned();
-                    if let Some(id) = &equipment_id {
-                        if let Some(tool) = tools.iter_mut().find(|tool| &tool.id == id) {
-                            tool.state = "idle".to_owned();
-                            tool.light = "green".to_owned();
-                            tool.current_lot = None;
-                            tool.current_step = None;
-                            tool.lots_processed += 1;
-                        }
+                    if let Some(id) = &equipment_id
+                        && let Some(tool) = tools.iter_mut().find(|tool| &tool.id == id)
+                    {
+                        tool.state = "idle".to_owned();
+                        tool.light = "green".to_owned();
+                        tool.current_lot = None;
+                        tool.current_step = None;
+                        tool.lots_processed += 1;
                     }
                 }
                 "lot_queued" => {
@@ -469,15 +539,15 @@ pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &E
                     }
                 }
                 "wafer_scrapped" => {
-                    if let Some(wafer_id) = event.payload.get("wafer_id").and_then(Value::as_str) {
-                        if let Some(wafer) = lot.wafers.iter_mut().find(|w| w.id == wafer_id) {
-                            wafer.state = "scrapped".to_owned();
-                            wafer.defect_info = event
-                                .payload
-                                .get("reason")
-                                .and_then(Value::as_str)
-                                .map(str::to_owned);
-                        }
+                    if let Some(wafer_id) = event.payload.get("wafer_id").and_then(Value::as_str)
+                        && let Some(wafer) = lot.wafers.iter_mut().find(|w| w.id == wafer_id)
+                    {
+                        wafer.state = "scrapped".to_owned();
+                        wafer.defect_info = event
+                            .payload
+                            .get("reason")
+                            .and_then(Value::as_str)
+                            .map(str::to_owned);
                     }
                 }
                 _ => {}
@@ -503,6 +573,7 @@ pub fn apply_event(lots: &mut Vec<LotView>, tools: &mut Vec<ToolView>, event: &E
 
 /// The demo clock: simulated milliseconds rendered as `mm:ss` since the line
 /// started (the simulator starts at wall time, so show the time of day).
+#[must_use]
 pub fn clock_text(now_ms: i64) -> String {
     let total_seconds = now_ms.div_euclid(1000).rem_euclid(86_400);
     let hours = total_seconds / 3600;
@@ -512,6 +583,7 @@ pub fn clock_text(now_ms: i64) -> String {
 }
 
 /// `mm:ss` for a duration in milliseconds.
+#[must_use]
 pub fn duration_text(ms: i64) -> String {
     let total = (ms.max(0) as f64 / 1000.0).round() as i64;
     format!("{:02}:{:02}", total / 60, total % 60)

@@ -4,10 +4,15 @@
 **每一次状态变更都先落进 PostgreSQL 的事件日志**，再由事务性 outbox 投递到
 GreptimeDB；断链不丢数据，删库能从事件日志重建，备份真做过 PITR 还原演练。
 
+阶段 2 把看板换成 **macOS / Windows / Linux 桌面 wgpu 真 3D 工作台**：Blender
+导出的 GLB 在原生组件里实时渲染，可旋转/缩放/平移、正交/透视切换、按部件爆炸；
+从全厂（L0）→ 机台部件（L1）→ 批次逐片（L2）→ 单个 `event_id` 的 outbox 与
+GreptimeDB 数据点（L3）逐层下钻，每一层都能查到真实数据。
+
 ![CI](https://github.com/fw6/oxide-fab/actions/workflows/ci.yml/badge.svg)
 ![Release](https://github.com/fw6/oxide-fab/actions/workflows/release.yml/badge.svg)
 
-![oxide-fab dashboard](docs/screenshots/dashboard-web.png)
+![oxide-fab workbench](docs/screenshots/workbench-dark-quality.png)
 
 > **边界声明**：这是一个**仿真作品**，机台是假的、SECS/GEM 的对端是假的、
 > 部署在单机上。它不是量产 CIM，没有接过真实机台，也没有通过任何 SEMI 认证。
@@ -40,29 +45,65 @@ docker compose up -d --wait
 `docker compose up` 会在本机构建 `oxide` 与 MinIO 镜像；release 流程另外发布
 预构建镜像 `ghcr.io/fw6/oxide-fab:latest`（linux/amd64 + linux/arm64）。
 
-看板：
+桌面工作台（默认连 `http://127.0.0.1:8080`，`OXIDE_API_URL` 可改）：
 
 ```sh
 cd crates/oxide-ui
-nsh run --target web     # 浏览器看板（约 90 秒首次构建后打印地址）
-nsh run --target tui     # 终端看板
+nsh run                    # 本机桌面窗口（首次构建约 3 分钟）
 ```
 
-UI 的测试与双目标验证：
+三个原生安装包，在各自的操作系统上构建：
 
 ```sh
-nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml            # Rust + TSX
-nsh test crates/oxide-ui --target web  --junit artifacts/nsh-web-tests.xml
-nsh test crates/oxide-ui --target tui  --junit artifacts/nsh-tui-tests.xml
-nsh package crates/oxide-ui --target web -o dist/web                # release 产物
+./scripts/desktop-package.sh dist
+# macOS   → dist/macos/oxide-fab.app
+# Linux   → dist/linux/oxide-fab/
+# Windows → dist/windows/oxide-fab/（有 Inno Setup 6 时另有 -setup.exe）
 ```
 
-看板默认连 `http://127.0.0.1:8080`；换地址设 `OXIDE_API_URL`。
+UI 的测试、资产校验与无 GPU 的渲染证据：
 
-看板顶部的控制条——`暂停/运行`、`单步`、`−/+` 调速度——直接 POST 到
-`/api/sim/pause`、`/play`、`/step`、`/speed/<n>`，与脚本用的是同一组接口；
-`crates/oxide-ui/tests/dashboard.rs` 里的两条测试会在 stub 网络上断言这些请求
-确实发出（证据见 [docs/acceptance.md](docs/acceptance.md) §8 一节）。
+```sh
+nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
+./scripts/validate-assets.sh
+./scripts/render-evidence.sh artifacts/render   # Linux/Windows 走软件渲染
+```
+
+截图/CI 用的启动开关（不改变功能）：`OXIDE_DEMO=1` 自动播放引导演示；
+`OXIDE_VIEW=tool:CLN-01|lot:LOT-0001|event:<uuid>|factory` 直接打开某一层；
+`OXIDE_EXPLODE=100` 初始爆炸进度；`OXIDE_TAB=quality|cross|...` 初始页签；
+`OXIDE_RENDER_DISABLE=1` 关闭 3D（UI 测试用）。
+
+控制条——`暂停/运行`、`单步`、`−/+` 调速度——POST 到 `/api/sim/pause`、
+`/play`、`/step`、`/speed/<n>`；批次面板的 Hold / Release / 返工 / 拆分 / 合并 /
+报废都带「演示触发」标签，走 `/api/lots/...`，写进 `lot_event`。界面上的每个
+聚合数字都标了口径（`/api/analytics` 的 `notes`），没有无来源的合成值。
+
+## 3D 工作台
+
+| | |
+|---|---|
+| 建模 | [`tools/blender/build_fab.py`](tools/blender/build_fab.py) 离线导出 GLB 与 manifest；`bpy` 不在运行时、CI 或发布包里 |
+| 渲染 | `oxide-render`：wgpu 29，深度测试、正交/透视、逐部件变换矩阵、离屏回读；三平台原生组件只负责把帧贴到窗口 |
+| 拾取 | `oxide-scene`：同一台相机发出射线，与 manifest 的 AABB 求交，命中与面板/搜索指向同一个 `Entity` |
+| 层级 | L0 全厂 → L1 爆炸部件 → L2 25 槽晶圆与缺陷分类 → L3 `event_id` → outbox → GreptimeDB 行 |
+| 主题 | 深色「Cleanroom Night」与浅色「Porcelain & Ink」一键切换，见 [视觉候选](docs/design/visual-proposals.md) |
+
+![深色 · 工艺质量](docs/screenshots/workbench-dark-quality.png)
+![L1 部件爆炸](docs/screenshots/workbench-dark-l1-exploded.png)
+![浅色 · 全厂](docs/screenshots/workbench-light-l0.png)
+![L3 事件追踪](docs/screenshots/workbench-dark-l3-event.png)
+
+无窗口的同一渲染路径（CI 证据，`artifacts/render/`）：
+
+![L0](docs/screenshots/render-l0-factory.png)
+![L1](docs/screenshots/render-l1-tool.png)
+![L2](docs/screenshots/render-l2-lot.png)
+![L3](docs/screenshots/render-l3-event.png)
+
+Linux 打包目录在 Xvfb + lavapipe 里连真实后端运行（同一套代码，L3 追踪）：
+
+![Linux · L3](docs/screenshots/workbench-linux-l3.png)
 
 ## 架构
 
@@ -207,7 +248,7 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 cargo test -p oxide-secs --test four_behaviors
 ```
 
-看板上点「断链 1.5s」可以现场演示 spool 增长与补传。选型与实测见
+工作台的「横切」面板点「SECS 断链 1.5s」可以现场演示 spool 增长与补传。选型与实测见
 [ADR 002](docs/decisions/002-secs-choice.md)。
 
 ## 面试讲解脚本
@@ -216,12 +257,12 @@ cargo test -p oxide-secs --test four_behaviors
 
 1. **先讲业务骨架（40 秒）**：Lot 是片盒，Wafer 是片；四道工序
    清洗 → 光刻 → 刻蚀 → 量测；机台按「桶」建模，派工是手写规则：
-   优先级 → FIFO → 设备资格矩阵 → 配方校验。可现场点 `pause/step/speed`
-   看队列怎么动。
+   优先级 → FIFO → 设备资格矩阵 → 配方校验。3D 视图从全厂钻进机台部件、
+   再钻进一批晶圆和单片履历；右侧派工面板逐条给出规则、优先级与队列位置。
 2. **再讲数据一致性（70 秒）**：PG 是唯一事实来源，所有状态变更先写
    `lot_event`，同事务写投影和 `outbox`；投递者至少一次送到 GreptimeDB，
    主键含 `event_id` 做幂等。**没有 2PC**，用 outbox 换最终一致。
-3. **现场制造故障（50 秒）**：`docker compose stop greptimedb`，看板上
+3. **现场制造故障（50 秒）**：`docker compose stop greptimedb`，工作台的
    outbox 积压曲线往上走，产线继续跑；`start` 之后自动追平，点数一致。
 4. **收尾（20 秒）**：删掉 Greptime 四张表，`./scripts/replay.sh` 从
    `lot_event` 全量重建，行数与 SPC 均值一模一样；备份不是 PPT，是真做过
@@ -267,8 +308,13 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - 没有认证/授权，API 是内网演示形态。
 - `cargo audit` 忽略两条只涉及 sqlx 可选驱动（`sqlx-sqlite` / `sqlx-mysql`，未编译、未链接）的公告，
   原因写在 [`.cargo/audit.toml`](.cargo/audit.toml)；新增公告仍会让 CI 失败。
-- TUI 产物由 nsh 的 `nsh build` + TUI host 组成；nsh 0.5.0 的
-  `nsh package` 没有 `tui` 目标（见 release notes）。
+- 桌面安装包**未签名**：macOS 没有 Developer ID 签名与公证，Windows 没有
+  Authenticode。它们是演示包，首次打开需按系统提示放行。
+- 桌面应用需要后端：先在仓库根目录 `docker compose up -d --wait`。离线打开时
+  只有场景骨架与空面板，不伪造数据。
+- 3D 适配器：Linux CI 用 lavapipe、Windows CI 用 WARP 的软件渲染实跑；macOS
+  没有软件 Metal 实现，使用 runner 的 Metal 设备，并在
+  `artifacts/render/render-report.json` 里如实记录。
 
 档 B（企业版路线）：
 
@@ -281,11 +327,19 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 ## 文档
 
 - [docs/architecture.md](docs/architecture.md) — 分层与模块依赖
-- [docs/acceptance.md](docs/acceptance.md) — 第 13 节 12 项验收的实测记录与证据路径
+- [docs/rust-guidelines-review.md](docs/rust-guidelines-review.md) — 按 Pragmatic Rust Guidelines 的审查记录、lint 门禁与后续重构建议
+- [docs/acceptance.md](docs/acceptance.md) — 阶段 1 的 12 项验收（重新跑通）
+- [docs/acceptance-phase2.md](docs/acceptance-phase2.md) — 阶段 2 的 A-01…A-12 与功能清单核对
+- [docs/design/client-features.md](docs/design/client-features.md) — 阶段 2 功能规格（四域映射、数据契约、验收点）
+- [docs/design/visual-proposals.md](docs/design/visual-proposals.md) — 浅色/深色各两套视觉候选与选型
 - [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型
 - [ADR 003](docs/decisions/003-idempotency.md) — 幂等实现与实测
 - [ADR 004](docs/decisions/004-object-store.md) — 对象存储：MinIO 源码构建的原因与实测
+- [ADR 005](docs/decisions/005-phase2-desktop-scope.md) — 阶段 2 范围、nsh API 实读与 Shader 元素评估
+- [ADR 006](docs/decisions/006-scene-and-render-host.md) — GLB/manifest 契约、wgpu 离屏渲染与三平台承载
+- [ADR 007](docs/decisions/007-analytics-projections.md) — 只读分析、Q-time、派工与 what-if 口径
+- [ADR 008](docs/decisions/008-visual-direction.md) — 视觉方向与两套主题
 - [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`artifacts/` 下每次运行都会重写）
 
 ## 许可证

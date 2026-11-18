@@ -8,7 +8,12 @@ description = "Discrete-event simulation engine for oxide-fab: tool buckets, ste
 
 [dependencies]
 oxide-core.workspace = true
+
 serde.workspace = true
 serde_json.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 uuid.workspace = true
+
+[lints]
+workspace = true

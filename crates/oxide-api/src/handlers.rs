@@ -14,12 +14,18 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use oxide_core::events::DomainEvent;
+use oxide_sim::Simulation;
 use oxide_store::outbox::{ReplayReport, replay as replay_events};
 use oxide_store::{DbCounts, OutboxStats};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::dto::*;
+use crate::dto::{
+    ActionResponse, BackupStatus, ComponentHealth, ConfigResponse, DashboardSnapshot,
+    ErrorResponse, EventTrace, EventsResponse, HealthResponse, HoldRequest, LotDetail,
+    MergeRequest, MonitorResponse, ReplayRequest, RestoreStatus, ReworkRequest, ScrapRequest,
+    SpcResponse, SplitRequest, StatsResponse, TimelineResponse, WhatIfRequest,
+};
 use crate::{AppState, Shared};
 
 #[derive(Debug)]
@@ -44,8 +50,40 @@ impl IntoResponse for ApiError {
 
 impl From<oxide_store::StoreError> for ApiError {
     fn from(error: oxide_store::StoreError) -> Self {
-        ApiError::Internal(error.to_string())
+        if error.is_unavailable() {
+            // The chaos contract: while PostgreSQL is away the control plane
+            // answers 503, so a client retries instead of treating it as a bug.
+            ApiError::Unavailable(error.to_string())
+        } else {
+            ApiError::Internal(error.to_string())
+        }
     }
+}
+
+impl From<oxide_sim::SimError> for ApiError {
+    fn from(error: oxide_sim::SimError) -> Self {
+        let message = error.to_string();
+        match error {
+            // A lot the operator named that this fab does not have.
+            oxide_sim::SimError::UnknownLot(_) => ApiError::NotFound(message),
+            // The server's own configuration is unrunnable.
+            oxide_sim::SimError::Scenario(_) => ApiError::Internal(message),
+            // A legal request for an illegal transition, or a what-if that
+            // names a tool kind this route does not run.
+            oxide_sim::SimError::Transition(_)
+            | oxide_sim::SimError::MergingIntoSelf
+            | oxide_sim::SimError::UnknownKind(_)
+            | oxide_sim::SimError::DuplicateTool(_) => ApiError::BadRequest(message),
+        }
+    }
+}
+
+/// The simulator, or a 500 when a previous holder panicked.
+fn lock_sim(state: &AppState) -> Result<std::sync::MutexGuard<'_, Simulation>, ApiError> {
+    state
+        .sim
+        .lock()
+        .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))
 }
 
 /// Refuse the request with 503 when PostgreSQL is not reachable.
@@ -75,9 +113,218 @@ pub async fn index() -> Json<Value> {
         "endpoints": [
             "/healthz", "/api/snapshot", "/api/events?since=0", "/api/lots/{id}",
             "/api/spc", "/api/outbox/timeline", "/api/secs", "/api/backup",
-            "/api/restore", "/api/stats", "/admin/replay"
+            "/api/restore", "/api/analytics", "/api/monitor", "/api/events/{event_id}",
+            "/api/what-if", "/admin/replay"
         ],
     }))
+}
+
+/// Recipes, Q-time, dispatch and KPI: everything derived from the log.
+pub async fn analytics(
+    State(state): State<Shared>,
+) -> Result<Json<oxide_core::analytics::Analysis>, ApiError> {
+    let persisted = state.store.all_events().await?;
+    let events: Vec<DomainEvent> = persisted.into_iter().map(|row| row.event).collect();
+    Ok(Json(oxide_core::analytics::analyse(
+        &events,
+        state.scenario.as_ref(),
+    )))
+}
+
+/// One event, its outbox row and the time-series rows it produced.
+pub async fn event_trace(
+    State(state): State<Shared>,
+    Path(event_id): Path<String>,
+) -> Result<Json<EventTrace>, ApiError> {
+    let id = uuid::Uuid::parse_str(&event_id)
+        .map_err(|_| ApiError::BadRequest(format!("{event_id} is not an event id")))?;
+    let Some(event) = state.store.event_by_id(id).await? else {
+        return Err(ApiError::NotFound(format!("no event {event_id}")));
+    };
+    let outbox = state.store.outbox_trace(id).await?;
+    let greptime = state.greptime.rows_for_event(id).await.unwrap_or_default();
+    Ok(Json(EventTrace {
+        event_id,
+        event,
+        outbox,
+        greptime,
+    }))
+}
+
+/// Component inspection: PostgreSQL, `GreptimeDB`, the object store, the outbox
+/// publisher and this API. A component that is down is reported, not thrown.
+pub async fn monitor(State(state): State<Shared>) -> Json<MonitorResponse> {
+    let started_at = std::time::Instant::now();
+    let minio_url =
+        std::env::var("OXIDE_MINIO_URL").unwrap_or_else(|_| "http://minio:9000".to_owned());
+    let (database, greptime, object_store, outbox) = tokio::join!(
+        timed(|| async {
+            if state.store.ping().await {
+                ("up", "PostgreSQL answers SELECT 1".to_owned())
+            } else {
+                ("down", "PostgreSQL does not answer".to_owned())
+            }
+        }),
+        timed(|| async {
+            if state.greptime.ping().await {
+                ("up", "GreptimeDB answers SELECT 1".to_owned())
+            } else {
+                ("down", "GreptimeDB does not answer".to_owned())
+            }
+        }),
+        timed(|| async { object_store_health(&minio_url).await }),
+        timed(|| async {
+            match state.store.outbox_health().await {
+                Ok(health) if health.pending == 0 => (
+                    "up",
+                    format!(
+                        "outbox empty; last delivery {}",
+                        age_text(health.last_published_age_ms)
+                    ),
+                ),
+                Ok(health)
+                    if health.last_published_age_ms >= 0
+                        && health.last_published_age_ms < 30_000 =>
+                {
+                    (
+                        "degraded",
+                        format!(
+                            "{} pending, oldest {}; publisher delivered {} ago",
+                            health.pending,
+                            age_text(health.oldest_pending_age_ms),
+                            age_text(health.last_published_age_ms)
+                        ),
+                    )
+                }
+                Ok(health) => (
+                    "down",
+                    format!(
+                        "{} pending, oldest {}; publisher last delivered {}",
+                        health.pending,
+                        age_text(health.oldest_pending_age_ms),
+                        age_text(health.last_published_age_ms)
+                    ),
+                ),
+                Err(error) => ("down", format!("outbox unreadable: {error}")),
+            }
+        }),
+    );
+    let mut components = vec![
+        component("postgres", database),
+        component("greptimedb", greptime),
+        component("object-store", object_store),
+        component("outbox-publisher", outbox),
+        ComponentHealth {
+            name: "oxide-api".to_owned(),
+            status: "up".to_owned(),
+            detail: format!(
+                "this API; up {}",
+                crate::handlers::uptime_text(state.started_at.elapsed())
+            ),
+            latency_ms: i64::try_from(started_at.elapsed().as_millis()).unwrap_or(i64::MAX),
+        },
+    ];
+    if let Some(secs) = &state.secs {
+        let status = secs.status();
+        components.push(ComponentHealth {
+            name: "secs-host".to_owned(),
+            status: if status.host_connected { "up" } else { "down" }.to_owned(),
+            detail: format!(
+                "HSMS-SS link; S1F1 {}, S6F11 {}, spool {}",
+                status.s1f1_ok, status.s6f11_sent, status.spool_depth
+            ),
+            latency_ms: 0,
+        });
+    }
+    Json(MonitorResponse {
+        components,
+        checked_at_ms: chrono::Utc::now().timestamp_millis(),
+    })
+}
+
+/// Offline what-if: replay the current snapshot twice in isolation.
+pub async fn what_if(
+    State(state): State<Shared>,
+    Json(request): Json<WhatIfRequest>,
+) -> Result<Json<oxide_sim::whatif::WhatIfComparison>, ApiError> {
+    let (scenario, snapshot) = {
+        let sim = lock_sim(&state)?;
+        (state.scenario.as_ref().clone(), sim.snapshot())
+    };
+    let options = oxide_sim::whatif::WhatIfOptions {
+        rule: match request.rule.as_deref() {
+            Some("fifo") => oxide_sim::DispatchRule::Fifo,
+            _ => oxide_sim::DispatchRule::PriorityThenFifo,
+        },
+        add_tool_kind: request.add_tool_kind.clone(),
+        horizon_ms: request.horizon_ms.unwrap_or(7_200_000),
+    };
+    let comparison = tokio::task::spawn_blocking(move || {
+        oxide_sim::whatif::compare(&scenario, &snapshot, &options)
+    })
+    .await
+    .map_err(|error| ApiError::Internal(format!("what-if task failed: {error}")))??;
+    Ok(Json(comparison))
+}
+
+/// `12.3 s` for the monitor's detail lines.
+fn uptime_text(uptime: std::time::Duration) -> String {
+    format!("{:.1} s", uptime.as_secs_f64())
+}
+
+fn component(name: &str, result: (i64, (&str, String))) -> ComponentHealth {
+    ComponentHealth {
+        name: name.to_owned(),
+        status: result.1.0.to_owned(),
+        detail: result.1.1,
+        latency_ms: result.0,
+    }
+}
+
+async fn timed<F, Fut>(check: F) -> (i64, (&'static str, String))
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = (&'static str, String)>,
+{
+    let started = std::time::Instant::now();
+    let result = tokio::time::timeout(std::time::Duration::from_millis(1_500), check())
+        .await
+        .unwrap_or(("down", "timed out after 1500 ms".to_owned()));
+    (
+        i64::try_from(started.elapsed().as_millis()).unwrap_or(i64::MAX),
+        result,
+    )
+}
+
+async fn object_store_health(url: &str) -> (&'static str, String) {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    let client = CLIENT.get_or_init(|| {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(1_200))
+            .build()
+            .expect("an HTTP client")
+    });
+    let target = format!("{}/minio/health/live", url.trim_end_matches('/'));
+    match client.get(&target).send().await {
+        Ok(response) if response.status().is_success() => {
+            ("up", format!("{url} answers /minio/health/live"))
+        }
+        Ok(response) => (
+            "degraded",
+            format!("{url} answered HTTP {}", response.status()),
+        ),
+        Err(error) => ("down", format!("{url}: {error}")),
+    }
+}
+
+fn age_text(age_ms: i64) -> String {
+    if age_ms < 0 {
+        "never".to_owned()
+    } else if age_ms < 1_000 {
+        format!("{age_ms} ms")
+    } else {
+        format!("{:.1} s", age_ms as f64 / 1000.0)
+    }
 }
 
 pub async fn health(State(state): State<Shared>) -> Response {
@@ -103,13 +350,7 @@ pub async fn health(State(state): State<Shared>) -> Response {
 }
 
 pub async fn snapshot(State(state): State<Shared>) -> Result<Json<DashboardSnapshot>, ApiError> {
-    let sim = {
-        let guard = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        guard.view()
-    };
+    let sim = lock_sim(&state)?.view();
     let db = state.store.counts().await?;
     let outbox = state.store.outbox_stats().await?;
     let last_seq = state.store.max_seq().await?;
@@ -122,9 +363,6 @@ pub async fn snapshot(State(state): State<Shared>) -> Result<Json<DashboardSnaps
     let backup = backup_from_db(&state).await;
     let restore = restore_from_db(&state).await;
     Ok(Json(DashboardSnapshot {
-        steps: sim.steps.clone(),
-        equipment: sim.equipment.clone(),
-        lots: sim.lots.clone(),
         sim,
         db,
         outbox,
@@ -187,12 +425,7 @@ pub async fn hold_lot(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.hold_lot(&lot_id, &request.reason)
-            .map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.hold_lot(&lot_id, &request.reason)?
     };
     finish_action(&state, &lot_id, "hold", events).await
 }
@@ -203,11 +436,7 @@ pub async fn release_lot(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.release_lot(&lot_id).map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.release_lot(&lot_id)?
     };
     finish_action(&state, &lot_id, "release", events).await
 }
@@ -219,12 +448,7 @@ pub async fn rework_lot(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.rework_lot(&lot_id, request.to_step, &request.reason)
-            .map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.rework_lot(&lot_id, request.to_step, &request.reason)?
     };
     finish_action(&state, &lot_id, "rework", events).await
 }
@@ -236,12 +460,7 @@ pub async fn split_lot(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.split_lot(&lot_id, &request.children)
-            .map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.split_lot(&lot_id, &request.children)?
     };
     finish_action(&state, &lot_id, "split", events).await
 }
@@ -253,12 +472,7 @@ pub async fn merge_lots(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.merge_lots(&lot_id, &request.sources)
-            .map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.merge_lots(&lot_id, &request.sources)?
     };
     finish_action(&state, &lot_id, "merge", events).await
 }
@@ -270,12 +484,7 @@ pub async fn scrap_wafer(
 ) -> Result<Json<ActionResponse>, ApiError> {
     let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.scrap_wafer(&lot_id, &request.wafer_id, &request.reason)
-            .map_err(ApiError::BadRequest)?
+        lock_sim(&state)?.scrap_wafer(&lot_id, &request.wafer_id, &request.reason)?
     };
     finish_action(&state, &lot_id, "scrap", events).await
 }
@@ -287,15 +496,8 @@ async fn finish_action(
     events: Vec<DomainEvent>,
 ) -> Result<Json<ActionResponse>, ApiError> {
     let count = events.len();
-    let route = state.route().clone();
-    let last_seq = state.store.append_events(&events, &route).await?;
-    {
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        sim.mark_persisted(count as u64);
-    }
+    let last_seq = state.store.append_events(&events, state.route()).await?;
+    lock_sim(state)?.mark_persisted(count as u64);
     let detail = json!({ "events": count, "action": action });
     let _ = state.store.audit("operator", action, lot_id, &detail).await;
     Ok(Json(ActionResponse {
@@ -305,40 +507,28 @@ async fn finish_action(
     }))
 }
 
-pub async fn play(State(state): State<Shared>) -> Json<Value> {
-    if let Ok(mut sim) = state.sim.lock() {
-        sim.set_running(true);
-    }
-    Json(json!({ "running": true }))
+pub async fn play(State(state): State<Shared>) -> Result<Json<Value>, ApiError> {
+    lock_sim(&state)?.set_running(true);
+    Ok(Json(json!({ "running": true })))
 }
 
-pub async fn pause(State(state): State<Shared>) -> Json<Value> {
-    if let Ok(mut sim) = state.sim.lock() {
-        sim.set_running(false);
-    }
-    Json(json!({ "running": false }))
+pub async fn pause(State(state): State<Shared>) -> Result<Json<Value>, ApiError> {
+    lock_sim(&state)?.set_running(false);
+    Ok(Json(json!({ "running": false })))
 }
 
 pub async fn step(State(state): State<Shared>) -> Result<Json<ActionResponse>, ApiError> {
-    let (events, count) = {
+    let events = {
         let _guard = state.write_lock.lock().await;
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
+        let mut sim = lock_sim(&state)?;
         sim.set_running(false);
-        let output = sim.step();
-        (output.events, sim.persisted_events())
+        sim.step().events
     };
-    let _ = count;
-    let n = events.len();
-    let route = state.route().clone();
-    let last_seq = state.store.append_events(&events, &route).await?;
-    if let Ok(mut sim) = state.sim.lock() {
-        sim.mark_persisted(n as u64);
-    }
+    let count = events.len();
+    let last_seq = state.store.append_events(&events, state.route()).await?;
+    lock_sim(&state)?.mark_persisted(count as u64);
     Ok(Json(ActionResponse {
-        events: n,
+        events: count,
         last_seq,
         message: "one simulation tick".to_owned(),
     }))
@@ -351,9 +541,7 @@ pub async fn set_speed(
     if !(0.1..=100.0).contains(&speed) {
         return Err(ApiError::BadRequest("speed must be 0.1 .. 100".to_owned()));
     }
-    if let Ok(mut sim) = state.sim.lock() {
-        sim.set_speed(speed);
-    }
+    lock_sim(&state)?.set_speed(speed);
     Ok(Json(json!({ "speed": speed })))
 }
 
@@ -514,32 +702,23 @@ pub async fn replay(
 pub async fn reset(State(state): State<Shared>) -> Result<Json<Value>, ApiError> {
     // Stop the line and let the simulator's current batch commit or fail
     // before the log is truncated.
-    if let Ok(mut sim) = state.sim.lock() {
-        sim.set_running(false);
-    }
+    lock_sim(&state)?.set_running(false);
     let _guard = state.write_lock.lock().await;
     tokio::time::sleep(std::time::Duration::from_millis(400)).await;
     state.store.reset().await?;
     if let Err(error) = state.greptime.truncate_all().await {
         tracing::warn!(%error, "could not truncate GreptimeDB during reset");
     }
-    let fresh =
-        oxide_sim::Simulation::new((*state.scenario).clone()).map_err(ApiError::Internal)?;
+    let fresh = Simulation::new((*state.scenario).clone())?;
     let fresh_state = fresh.snapshot();
-    {
-        let mut sim = state
-            .sim
-            .lock()
-            .map_err(|_| ApiError::Internal("simulation lock poisoned".to_owned()))?;
-        *sim = fresh;
-    }
+    *lock_sim(&state)? = fresh;
     let value = serde_json::to_value(&fresh_state)
         .map_err(|error| ApiError::Internal(error.to_string()))?;
     state.store.save_snapshot("fab", &value, 0).await?;
     Ok(Json(json!({ "reset": true })))
 }
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct RedeliverPath {
     event_id: uuid::Uuid,
 }

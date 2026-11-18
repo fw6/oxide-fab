@@ -1,10 +1,27 @@
 {
   "name": "氧化层 oxide-fab",
   "id": "com.fw6.oxidefab",
-  "version": "0.1.2",
-  "build": 3,
+  "version": "0.2.0",
+  "build": 1,
   "rust": ".",
   "root": "App",
   "theme": "theme.json",
-  "appearance": "dark"
+  "appearance": "dark",
+  "icon": "icon.png",
+  "window": {
+    "title": "氧化层 oxide-fab · 3D 工作台",
+    "defaultSize": {
+      "width": 1500,
+      "height": 940
+    },
+    "minSize": {
+      "width": 1120,
+      "height": 720
+    }
+  },
+  "macos": {
+    "infoPlist": {
+      "LSMinimumSystemVersion": "14.0"
+    }
+  }
 }

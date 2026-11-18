@@ -5,6 +5,7 @@
 //! specification limits and the process's own 3-sigma limits.
 
 /// Mean and population standard deviation of `values`.
+#[must_use]
 pub fn mean_sigma(values: &[f64]) -> (f64, f64) {
     if values.is_empty() {
         return (0.0, 0.0);
@@ -16,12 +17,14 @@ pub fn mean_sigma(values: &[f64]) -> (f64, f64) {
 }
 
 /// Control limits: `mean ± 3 sigma`. An empty sample yields zeros.
+#[must_use]
 pub fn control_limits(values: &[f64]) -> (f64, f64, f64) {
     let (mean, sigma) = mean_sigma(values);
     (mean, mean + 3.0 * sigma, mean - 3.0 * sigma)
 }
 
 /// `true` when `value` sits outside `[lcl, ucl]`.
+#[must_use]
 pub fn out_of_control(value: f64, lcl: f64, ucl: f64) -> bool {
     value < lcl || value > ucl
 }

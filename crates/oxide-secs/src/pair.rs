@@ -40,6 +40,7 @@ impl Default for SecsConfig {
 impl SecsConfig {
     /// A config on a free loopback port, for tests and for running two pairs
     /// side by side.
+    #[must_use]
     pub fn ephemeral() -> Self {
         let probe = TcpListener::bind("127.0.0.1:0").expect("bind probe");
         let addr = probe.local_addr().expect("probe address");
@@ -138,6 +139,7 @@ impl std::fmt::Debug for SecsHandle {
 }
 
 impl SecsHandle {
+    #[must_use]
     pub fn status(&self) -> SecsStatus {
         self.status.lock().expect("status lock").clone()
     }
@@ -207,6 +209,11 @@ type Recipes = Arc<Mutex<HashMap<String, String>>>;
 type Spool = Arc<Mutex<VecDeque<EquipmentTask>>>;
 
 /// Start the simulated equipment (passive) and host (active).
+#[must_use]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "callers own a fresh config; the pair keeps it"
+)]
 pub fn start_pair(config: SecsConfig) -> SecsHandle {
     let status = Arc::new(Mutex::new(SecsStatus {
         session_id: config.session_id,
@@ -252,6 +259,10 @@ pub fn start_pair(config: SecsConfig) -> SecsHandle {
 // equipment
 // ----------------------------------------------------------------------
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "ownership moves into the equipment thread"
+)]
 fn equipment_loop(
     config: SecsConfig,
     status: Arc<Mutex<SecsStatus>>,
@@ -369,12 +380,10 @@ fn handle_download(
     let body = message.secs2();
     let ppid = body
         .get_ascii_at(&[0])
-        .map_err(|error| format!("S7F3: missing PPID: {error}"))?
-        .to_owned();
+        .map_err(|error| format!("S7F3: missing PPID: {error}"))?;
     let program = body
         .get_ascii_at(&[1])
-        .map_err(|error| format!("S7F3: missing PPBODY: {error}"))?
-        .to_owned();
+        .map_err(|error| format!("S7F3: missing PPBODY: {error}"))?;
     let ack = if ppid.is_empty() || program.is_empty() || program.len() > 8192 {
         Ackc7::LengthError
     } else {
@@ -436,7 +445,7 @@ fn send_task(
             comm,
             status,
             crate::ceid::PROCESS_STARTED,
-            format!("process started lot={lot_id} step={step_no} eq={equipment_id}"),
+            &format!("process started lot={lot_id} step={step_no} eq={equipment_id}"),
         ),
         EquipmentTask::ProcessCompleted {
             lot_id,
@@ -446,7 +455,7 @@ fn send_task(
             comm,
             status,
             crate::ceid::PROCESS_COMPLETED,
-            format!("process completed lot={lot_id} step={step_no} eq={equipment_id}"),
+            &format!("process completed lot={lot_id} step={step_no} eq={equipment_id}"),
         ),
         EquipmentTask::Alarm {
             equipment_id,
@@ -475,19 +484,25 @@ fn send_event(
     comm: &Arc<HsmsSsCommunicator>,
     status: &Arc<Mutex<SecsStatus>>,
     ceid: i64,
-    text: String,
+    text: &str,
 ) -> bool {
-    let report = match s6f11_report(
-        Secs2::uint2([1]).expect("rptid"),
-        [Secs2::ascii(text.clone()).expect("text")],
-    ) {
+    // The text is runtime data (lot ids, alarm text), so an item the SECS
+    // encoder refuses must end this message, never panic the equipment thread.
+    let item = match Secs2::ascii(text) {
+        Ok(item) => item,
+        Err(error) => {
+            set_error(status, format!("S6F11 text: {error}"));
+            return false;
+        }
+    };
+    let report = match s6f11_report(Secs2::uint2([1]).expect("constant rptid"), [item]) {
         Ok(report) => report,
         Err(error) => {
             set_error(status, format!("S6F11 report: {error}"));
             return false;
         }
     };
-    let data_id = Secs2::uint4([0]).expect("data id");
+    let data_id = Secs2::uint4([0]).expect("constant data id");
     let ceid_item = Secs2::uint2([ceid as u16]).expect("ceid");
     match s6f11_event(comm, data_id, ceid_item, [report]) {
         Ok(ack) => {
@@ -532,6 +547,10 @@ fn flush_spool(comm: &Arc<HsmsSsCommunicator>, status: &Arc<Mutex<SecsStatus>>, 
 // host
 // ----------------------------------------------------------------------
 
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "ownership moves into the host thread"
+)]
 fn host_loop(
     config: SecsConfig,
     status: Arc<Mutex<SecsStatus>>,
@@ -746,11 +765,7 @@ fn upload_recipe(
             return;
         }
     };
-    let returned = readback
-        .secs2()
-        .get_ascii_at(&[1])
-        .unwrap_or_default()
-        .to_owned();
+    let returned = readback.secs2().get_ascii_at(&[1]).unwrap_or_default();
     let actual = oxide_core::model::Recipe::checksum_of(&returned);
     if actual == checksum {
         status.lock().expect("status lock").s7f6_verified += 1;
@@ -801,8 +816,7 @@ fn active_config(config: &SecsConfig) -> HsmsSsCommunicatorConfig {
 fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or_default()
+        .map_or(0, |d| d.as_millis() as i64)
 }
 
 fn record(status: &Arc<Mutex<SecsStatus>>, from: &str, message: &str, detail: &str) {

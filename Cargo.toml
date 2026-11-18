@@ -6,6 +6,8 @@ members = [
     "crates/oxide-core",
     "crates/oxide-sim",
     "crates/oxide-secs",
+    "crates/oxide-scene",
+    "crates/oxide-render",
     "crates/oxide-store",
     "crates/oxide-api",
     "bins/oxide-server",
@@ -14,7 +16,7 @@ members = [
 exclude = ["crates/oxide-ui"]
 
 [workspace.package]
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.100.0"
 license = "Apache-2.0"
@@ -24,6 +26,7 @@ oxide-core = { path = "crates/oxide-core" }
 oxide-sim = { path = "crates/oxide-sim" }
 oxide-secs = { path = "crates/oxide-secs" }
 oxide-store = { path = "crates/oxide-store" }
+oxide-scene = { path = "crates/oxide-scene" }
 oxide-api = { path = "crates/oxide-api" }
 
 anyhow = "1"
@@ -53,6 +56,46 @@ uuid = { version = "1", features = ["v4", "serde"] }
 lto = "thin"
 codegen-units = 1
 strip = true
+
+# Lint policy: the set the Pragmatic Rust Guidelines recommend. Every opt-out
+# carries a reason; see docs/rust-guidelines-review.md. CI runs clippy with
+# `-D warnings`, so a new warning fails the build until it is fixed or
+# consciously silenced here.
+[workspace.lints.rust]
+ambiguous_negative_literals = "warn"
+missing_debug_implementations = "warn"
+redundant_imports = "warn"
+redundant_lifetimes = "warn"
+trivial_numeric_casts = "warn"
+unsafe_op_in_unsafe_fn = "warn"
+unused_lifetimes = "warn"
+
+[workspace.lints.clippy]
+cargo = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+correctness = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+
+# The domain models step numbers as `i32` and counts as `usize`, so the
+# boundary conversions are deliberate and reviewed one by one. The five cast
+# lints would fire on every one of them and bury the lints that find bugs.
+cast_lossless = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+
+# Failure modes are documented next to the error types that define them. The
+# lint fires on every `-> Result` in the HTTP layer, where the failure mode is
+# "a status code"; the domain crates document theirs by hand.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+
+# A private workspace that is published nowhere.
+cargo_common_metadata = "allow"
+# secs4rs (a git dependency) pins an older `syn` than the derive stack uses.
+multiple_crate_versions = "allow"
 
 # Development artifacts dominate target/ because `debug = 2` (the default) puts
 # full DWARF in every .o and rlib; measured on split-debuginfo=unpacked here,
