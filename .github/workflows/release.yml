@@ -33,6 +33,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  NSH_VERSION: v0.5.0
 
 jobs:
   ci:
@@ -131,6 +132,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      # Restored before the Rust target; see the note in ci.yml. Without it every
+      # release cut rebuilds the nsh runner workspace from nothing.
+      - name: Cache the nsh runner workspace
+        uses: actions/cache@v4
+        with:
+          path: crates/oxide-ui/.nsh
+          key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.100.0"
@@ -141,12 +150,21 @@ jobs:
             .
             crates/oxide-ui
 
+      - name: Cache apt archives
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-gtk-vulkan-1
+
       - name: Linux native libraries
         if: runner.os == 'Linux'
         run: |
           set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=5 update
+          sudo apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o Acquire::Retries=5 install -y --no-install-recommends \
             libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick
 
@@ -155,14 +173,11 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        env:
-          NSH_VERSION: v0.5.0
 
       - name: Install nsh (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:NSH_VERSION = "v0.5.0"
           irm https://nsh.dev/install.ps1 | iex
           "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
@@ -199,8 +214,10 @@ jobs:
                 "dist/oxide-fab-${VERSION}-linux-$(uname -m).tar.gz" oxide-fab
               ;;
             windows)
-              powershell -NoProfile -Command \
-                "Compress-Archive -Path 'dist/windows/oxide-fab' -DestinationPath ('dist/oxide-fab-' + $env:VERSION + '-windows-${{ matrix.arch }}.zip')"
+              # The bash step runs with `set -u`, so `$env:VERSION` inside a
+              # double-quoted PowerShell command is an unbound bash variable.
+              # This step exports VERSION, so bash can interpolate it directly.
+              powershell -NoProfile -Command "Compress-Archive -Path 'dist/windows/oxide-fab' -DestinationPath 'dist/oxide-fab-${VERSION}-windows-${{ matrix.arch }}.zip'"
               setup="$(find dist/windows -maxdepth 1 -name '*-setup.exe' | head -1 || true)"
               if [ -n "$setup" ]; then
                 cp "$setup" "dist/oxide-fab-${VERSION}-windows-${{ matrix.arch }}-setup.exe"
@@ -259,14 +276,25 @@ jobs:
             [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+            [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT rect, int size);
           }
           "@
           $proc = Get-Process oxide-fab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
           if (-not $proc) { throw "the packaged app has no window" }
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          $width = if ($screen.Width -ge 1500 -and $screen.Height -ge 940) { 1500 } else { 1120 }
+          $height = if ($width -eq 1500) { 940 } else { 720 }
+          [OxideWin]::MoveWindow($proc.MainWindowHandle, 0, 0, $width, $height, $true) | Out-Null
           [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
           $rect = New-Object OxideWin+RECT
-          [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          # The DWM frame bounds exclude the invisible resize border, which
+          # CopyFromScreen would otherwise capture as a blank margin.
+          if ([OxideWin]::DwmGetWindowAttribute($proc.MainWindowHandle, 9, [ref]$rect, 16) -ne 0) {
+            [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          }
+          Write-Host "desktop $($screen.Width)x$($screen.Height); capturing $(($rect.Right - $rect.Left))x$(($rect.Bottom - $rect.Top))"
           $bitmap = New-Object System.Drawing.Bitmap(($rect.Right - $rect.Left), ($rect.Bottom - $rect.Top))
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
