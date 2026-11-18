@@ -26,6 +26,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  NSH_VERSION: v0.5.0
 
 jobs:
   lint-and-test:
@@ -111,8 +112,16 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        env:
-          NSH_VERSION: v0.5.0
+
+      # nsh regenerates crates/oxide-ui/.nsh on checkout, and a fresh runner
+      # workspace rebuilds for minutes (11 min on this machine; 5 s when the
+      # workspace is already there). Keeping it makes every nsh command
+      # incremental; nsh.json and the UI lockfile pin what it may contain.
+      - name: Cache the nsh runner workspace
+        uses: actions/cache@v4
+        with:
+          path: crates/oxide-ui/.nsh
+          key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
 
       - name: nsh version
         run: nsh --version
@@ -195,16 +204,21 @@ jobs:
         run: |
           curl -fsSL https://nsh.dev/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-        env:
-          NSH_VERSION: v0.5.0
 
       - name: Install nsh (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          $env:NSH_VERSION = "v0.5.0"
           irm https://nsh.dev/install.ps1 | iex
           "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+
+      # Same runner workspace a checkout does not carry: see the UI job. A cold
+      # one costs 5-12 minutes of package time on every desktop.
+      - name: Cache the nsh runner workspace
+        uses: actions/cache@v4
+        with:
+          path: crates/oxide-ui/.nsh
+          key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
 
       - name: nsh version
         shell: bash
