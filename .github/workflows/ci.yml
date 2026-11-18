@@ -107,6 +107,15 @@ jobs:
             . -> target
             crates/oxide-ui -> target
 
+      # The runner's Ubuntu mirror has taken 0.4 minutes and 10.4 minutes for
+      # the same install; the .debs are what is slow, so they are kept. The key
+      # is bumped by hand when the package list below changes.
+      - name: Cache apt archives
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-gtk-vulkan-1
+
       - name: Native libraries for the desktop targets
         run: |
           set -euo pipefail
@@ -202,6 +211,14 @@ jobs:
           workspaces: |
             .
             crates/oxide-ui
+
+      # See the UI job: the archive is the slow half of the install.
+      - name: Cache apt archives
+        if: runner.os == 'Linux'
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/apt/archives
+          key: apt-${{ runner.os }}-gtk-vulkan-1
 
       - name: Linux native libraries (GTK 4, Vulkan, Xvfb, screenshot)
         if: runner.os == 'Linux'
