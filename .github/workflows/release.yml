@@ -39,6 +39,10 @@ jobs:
   ci:
     name: CI gate
     uses: ./.github/workflows/ci.yml
+    # The gate only has to verify; its evidence artefacts would collide with the
+    # release's own desktop-* packages in the same run.
+    with:
+      artifacts: false
 
   binaries:
     name: oxide-server ${{ matrix.target }}
@@ -146,6 +150,11 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
         with:
+          # rust-cache keys on the job id by default, and this job is
+          # `desktop-packages` while ci.yml's is `desktop`. Naming the CI job's
+          # key makes a release reuse what CI already built; without it every
+          # release cut was a cold build (9-14 minutes per desktop).
+          shared-key: desktop
           workspaces: |
             .
             crates/oxide-ui
@@ -301,14 +310,21 @@ jobs:
           $bitmap.Save("artifacts\desktop-windows.png", [System.Drawing.Imaging.ImageFormat]::Png)
           Stop-Process -Id $app.Id -Force
 
+      # Upload one path, so the files land at the artifact root instead of under
+      # dist/ and artifacts/, which is what the checksums and publish jobs expect
+      # once merge-multiple flattens the downloads.
+      - name: Stage the release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/release
+          mv dist/oxide-fab-* dist/release/
+          cp "artifacts/desktop-${{ matrix.target }}.png" dist/release/
+
       - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.target }}
-          path: |
-            dist/oxide-fab-*.zip
-            dist/oxide-fab-*.tar.gz
-            dist/oxide-fab-*.exe
-            artifacts/desktop-*.png
+          path: dist/release/*
           if-no-files-found: error
 
   checksums:
@@ -327,8 +343,12 @@ jobs:
           set -euo pipefail
           cd dist
           rm -f SHA256SUMS.txt
-          find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) \
-            -printf '%f\n' | sort | xargs -r sha256sum > SHA256SUMS.txt
+          # The desktop artifacts keep their upload paths (`dist/…`), so the
+          # packages arrive one level down; take every file and hash basenames.
+          find . -type f \( -name '*.tar.gz' -o -name '*.zip' -o -name '*.exe' \) -print0 \
+            | sort -z \
+            | xargs -0 -r sha256sum \
+            | sed 's#  \./[^ ]*/#  #' > SHA256SUMS.txt
           cat SHA256SUMS.txt
           test "$(wc -l < SHA256SUMS.txt)" -ge 5
 
@@ -449,12 +469,20 @@ jobs:
           - 机台与 SECS/GEM 对端是仿真的（simulated tool only），未接真实机台，
             未通过任何 SEMI 认证。
           - 开源版 GreptimeDB standalone：没有读副本、没有双活。
-          - **桌面目标（macOS / Windows / Linux 桌面）不产出 nsh 包**：nsh 包
-            只由 ubuntu job 产出，共两件（web 与 tui）；桌面交付物是
-            \`oxide-server-<version>-<target>\` 二进制包。
-          - nsh 0.5.x 的 \`nsh package\` 没有 \`tui\` 目标：TUI 产物是
-            \`nsh build\` 的应用包 + 应用源码，用已安装的 nsh 运行
-            （\`cd app && nsh run --target tui\`）。
+          - 桌面安装包**未签名**：macOS 没有 Developer ID 与公证，Windows 没有
+            Authenticode；首次打开需按系统提示放行。
+          - 桌面应用需要后端：先在仓库根目录 \`docker compose up -d --wait\`。离线
+            打开只有场景骨架与空面板，不伪造数据。
+
+          桌面交付物（三件，均由各自的 runner 打包、启动并截图）：
+
+          - macOS：\`oxide-fab-<version>-macos-arm64.zip\`（内含 \`oxide-fab.app\`）
+          - Linux：\`oxide-fab-<version>-linux-x86_64.tar.gz\`（目录包，可执行文件
+            为 \`oxide-fab/oxidefab\`）
+          - Windows：\`oxide-fab-<version>-windows-x86_64.zip\` 与
+            \`-setup.exe\`（Inno Setup 安装包；可执行文件为 \`oxide-fab.exe\`）
+
+          服务端二进制：\`oxide-server-<version>-<target>\`。
 
           ## 变更记录（CHANGELOG 片段）
 

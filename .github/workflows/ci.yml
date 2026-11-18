@@ -11,7 +11,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml calls this as its gate. It passes `artifacts: false` because the
+  # gate's artefacts would share names with the release's own packages in the
+  # same run, and the checksums job cannot tell them apart.
   workflow_call:
+    inputs:
+      artifacts:
+        description: "Upload the job artefacts (evidence, reports)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -391,7 +399,7 @@ jobs:
           }
 
       - name: Upload the desktop evidence
-        if: always()
+        if: always() && inputs.artifacts != false
         uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.target }}
