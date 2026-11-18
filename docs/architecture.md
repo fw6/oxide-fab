@@ -176,3 +176,28 @@ One compose file: `postgres` (pgBackRest, WAL archiving to MinIO), `minio`
 `oxide`. A separate
 `docker-compose.restore.yml` project restores into isolated volumes and its own
 S3 prefix (`/oxide-restore-verify`).
+
+## CI
+
+`ci.yml` has six jobs. `lint-and-test` runs fmt, clippy, the workspace tests and
+`cargo audit`; `ui` runs the nsh tests, the asset check and the UI workspace's
+own fmt/clippy; `desktop` is a three-OS matrix that renders the evidence frames,
+packages with nsh, launches the app and screenshots it; `integration` brings the
+compose stack up and runs smoke, idempotency, replay, backup, restore and chaos;
+`workflows` is actionlint. Only `lint-and-test` gates the heavy jobs, so the
+matrix and the stack run beside the UI lint rather than behind it; a pull request
+run is cancelled when a newer commit supersedes it.
+
+Caches, in the order that matters:
+
+- `crates/oxide-ui/.nsh`, the generated nsh runner workspace. It costs minutes
+  to rebuild from nothing and seconds to reuse, and it must be restored *before*
+  the Rust target: the other order gives generated sources newer mtimes than the
+  cached artefacts, and cargo rebuilds anyway.
+- `crates/oxide-ui/target` and the root `target`, through `rust-cache`
+  (dependency artefacts only, which is what the desktop and UI builds reuse).
+- `/var/cache/apt/archives` for the GTK/Vulkan packages; the runner's mirror has
+  ranged from 0.4 to 10.4 minutes for the same install.
+
+`release.yml` calls `ci.yml` before it publishes, so a tag cannot ship anything
+the matrix has not verified.

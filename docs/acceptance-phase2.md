@@ -1,7 +1,7 @@
 # 阶段 2 验收记录（桌面 wgpu 3D 工作台）
 
 - **版本**：0.2.0（本次工作区，未打 tag）
-- **记录时间**：2026-11-17
+- **记录时间**：2026-11-17（2026-11-18 补入 CI 上的 Windows 证据与提速后的 CI 数据）
 - **本机**：macOS / arm64（Darwin 27，Apple M2，Metal）、Docker/OrbStack、nsh 0.5.0
 - **功能规格**：[docs/design/client-features.md](design/client-features.md)
 - **范围决定**：[ADR 005](decisions/005-phase2-desktop-scope.md)（交付目标由 web/TUI 改为三个桌面包）
@@ -13,10 +13,11 @@
 |---|---|---|---|---|
 | macOS arm64 | ✅ | ✅ `oxide-fab.app` | ✅ 本机 | Metal（Apple M2；无软件 Metal 实现） |
 | Linux arm64 | ✅ 容器内 | ✅ `oxide-fab.tar.gz` | ✅ 容器 + Xvfb | **lavapipe**（`software: true`） |
-| Windows x86_64 | ✅ `cargo xwin check` | ⏳ 仅在 CI | ⏳ 仅在 CI | WARP（CI `--software`） |
+| Windows x86_64 | ✅ 本机 xwin + CI | ✅ CI `oxide-fab-0.2.0-windows-x86_64.zip` / `-setup.exe` | ✅ CI（`windows-latest`） | **WARP**（`Microsoft Basic Render Driver`） |
 
-A-01 因此是 **2/3 本机 + Windows 编译通过**；Windows 的打包/运行/截图由
-`.github/workflows/ci.yml` 的 `desktop` 矩阵执行，本记录不把未跑过的步骤标成通过。
+A-01 因此 **三平台全部通过**：macOS 与 Linux 在本机（Linux 在容器内）执行，
+Windows 由 CI 的 `desktop` 矩阵在 `windows-latest` 上执行，run `44278832829`
+的 `desktop-windows` artifact 内含 zip、Inno Setup 安装包与窗口截图。
 
 ## 1. 三平台与视觉
 
@@ -24,7 +25,7 @@ A-01 因此是 **2/3 本机 + Windows 编译通过**；Windows 的打包/运行/
 |---|---|---|---|
 | A-01 | 三平台各自构建、打包、运行并产出窗口截图 | macOS：`./scripts/desktop-package.sh dist` → `dist/macos/oxide-fab.app`；运行 `dist/macos/oxide-fab.app/Contents/MacOS/oxidefab`，`artifacts/desktop-macos-packaged.png` | **macOS 通过** |
 | | | Linux：`./scripts/linux-container-evidence.sh`（Ubuntu 24.04 arm64：cargo test 83 项、资产校验、lavapipe 四层 + 正交渲染、`nsh package --target linux`），`artifacts/linux-evidence.log` 末行 `LINUX-EVIDENCE-DONE`，渲染报告 `artifacts/render-linux/render-report.json`（`software: true`、llvmpipe）；打包目录在 Xvfb 中启动并连真实后端截图：`artifacts/desktop-linux.png`、`docs/screenshots/workbench-linux-l3.png`；包为 `artifacts/oxide-fab-linux.tar.gz` | **Linux 通过** |
-| | | Windows：`cargo xwin check --target x86_64-pc-windows-msvc`（真实 MSVC 头/库，经 cargo-xwin）编译整个 app crate 与 `nsh-platform-windows 0.5.0`，exit 0；**打包与窗口截图本机无 Windows，未执行**；CI 的 `desktop` 矩阵（`windows-latest`）已配置 `nsh package --target windows`、启动 exe、`GetWindowRect`+`CopyFromScreen` 截图 | **Windows 目标编译通过**（`artifacts/windows-check.log`）；运行/打包未在本机执行 |
+| | | Windows：`cargo xwin check --target x86_64-pc-windows-msvc` 在本机做完整类型检查（真实 MSVC 头/库，`artifacts/windows-check.log`）；CI 的 `desktop` 矩阵在 `windows-latest` 上 `nsh package --target windows`，产出 `dist/windows/oxide-fab/oxide-fab.exe`（注意 Windows 的可执行文件按 `--name` 命名，与 macOS/Linux 的 `oxidefab` 不同）与 Inno Setup 安装包，然后以 `OXIDE_DEMO=1` 启动 exe、等 20 s、按 DWM 边框截取窗口（`DwmGetWindowAttribute` + `CopyFromScreen`），run `44278832829` 的 `desktop-windows` artifact 内含 zip、setup.exe 与 `desktop-windows.png`；日志记录 `desktop 1024x768; window 1120x720; capturing 1122x752` | **Windows 通过（CI）** |
 | A-02 | 四域映射可核对，模块名与官方来源一致 | 功能规格第 1 节表；`docs/decisions/005-phase2-desktop-scope.md` 记录 nsh 文档实读；README 的边界声明 | 通过 |
 | A-03 | L0→L1→L2→L3 可进入/退回/按 ID 直达 | `crates/oxide-scene` 27 项测试；面包屑 L0–L3 + 退回 + 复位；截图 `docs/screenshots/workbench-dark-l1-exploded.png`、`...-dark-l3-event.png`；`nsh test` 的 `pressing_a_lot_expands_its_wafers_and_genealogy` | 通过 |
 | A-04 | L3 显示并复制 `event_id`，能在 GreptimeDB 找到数据点 | 打包应用截图 `docs/screenshots/workbench-dark-l3-event.png`（event_id + 复制按钮 + outbox 已投递 + 派生行计数）；`GET /api/events/{id}` 实测 `track_out … outbox published yes; greptime: e116_perf:1,equipment_telemetry:1,gem_event:1,spc_sample:1`（`artifacts/accept-api-phase2.log`） | 通过 |
@@ -106,11 +107,14 @@ OXIDE_API_URL=http://<host-ip>:8080 ./scripts/linux-container-evidence.sh
 
 ## 5. 已知未在本机执行
 
-- **Windows 打包与运行**：本机没有 Windows；已用 `cargo xwin` 做完整
-  `cargo check`（含 `nsh-platform-windows`），但打包、启动与窗口截图只能在
-  Windows 上做。CI 的 `desktop` 矩阵包含 `windows-latest` 的这三步；本记录
-  不把它标为已通过。
+- **Windows 的打包与运行只在 CI**：本机没有 Windows，`cargo xwin` 只做类型检查；
+  打包、启动与窗口截图在 `windows-latest` 上执行（run `44278832829`）。
+- **Windows 截图的取景**：runner 的桌面是 1024x768，比应用声明的最小窗口
+  1120x720 还窄，且该镜像没有 `Set-DisplayResolution`，所以截图会丢掉窗口最右侧
+  约 100 px（空白）；日志里的 `desktop ... window ... capturing ...` 一行记录了实际
+  取景。窗口本身是完整的（1122x752），右侧面板的完整视觉以 macOS/Linux 截图和
+  `artifacts/render/` 的 Windows 软件渲染帧为准。
 - **Linux 原生运行**：在 Ubuntu 24.04 arm64 容器内以 Xvfb + lavapipe 执行；
   这是真实 Linux 用户态，但不是 CI runner 的 x86_64 环境。
-- **三平台 CI 首跑**：workflow 已配置并通过 actionlint；本机 token 不能推送
-  workflow 变更，因此 CI 尚未实际运行。
+- **CI 在本机之外**：workflow 通过 actionlint，三平台矩阵已在 PR #14 上跑通
+  （墙钟约 10–18 分钟，详见 `docs/architecture.md` 的 CI 小节）。
