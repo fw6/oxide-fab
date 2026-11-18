@@ -295,6 +295,16 @@ jobs:
         shell: pwsh
         run: |
           $env:OXIDE_DEMO = "1"
+          # The runner's desktop is smaller than the app's 1500x940 window, and a
+          # window larger than the desktop captures with blank strips. Ask for a
+          # 1600x1000 virtual display where the cmdlet exists; the capture below
+          # falls back to the window's minimum size when it does not.
+          try {
+            Set-DisplayResolution -Width 1600 -Height 1000 -ErrorAction Stop
+            Start-Sleep -Seconds 2
+          } catch {
+            Write-Host "Set-DisplayResolution unavailable: $($_.Exception.Message)"
+          }
           # nsh names the Windows binary after --name (oxide-fab.exe); on macOS
           # and Linux it is oxidefab.
           $exe = Get-Item "dist\windows\oxide-fab\oxide-fab.exe" -ErrorAction SilentlyContinue
@@ -319,18 +329,28 @@ jobs:
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
             [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
+            [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attribute, out RECT rect, int size);
           }
           "@
           $proc = Get-Process oxide-fab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
           if (-not $proc) { throw "the packaged app has no window" }
-          # The runner's desktop is narrower than the app's 1500 px default, and
-          # a window larger than the screen captures with a blank strip. The
-          # minimum size the app itself declares fits it exactly.
-          [OxideWin]::MoveWindow($proc.MainWindowHandle, 0, 0, 1120, 720, $true) | Out-Null
+          $screen = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+          if ($screen.Width -ge 1500 -and $screen.Height -ge 940) {
+            $width = 1500; $height = 940
+          } else {
+            # The minimum the app itself declares; the layout is narrower there.
+            $width = 1120; $height = 720
+          }
+          Write-Host "desktop $($screen.Width)x$($screen.Height); window ${width}x${height}"
+          [OxideWin]::MoveWindow($proc.MainWindowHandle, 0, 0, $width, $height, $true) | Out-Null
           [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
           Start-Sleep -Seconds 3
           $rect = New-Object OxideWin+RECT
-          [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          # GetWindowRect includes the invisible DWM resize border, which
+          # CopyFromScreen would capture as a blank margin.
+          if ([OxideWin]::DwmGetWindowAttribute($proc.MainWindowHandle, 9, [ref]$rect, 16) -ne 0) {
+            [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
+          }
           $width = $rect.Right - $rect.Left
           $height = $rect.Bottom - $rect.Top
           Write-Host "capturing ${width}x${height} at $($rect.Left),$($rect.Top)"
