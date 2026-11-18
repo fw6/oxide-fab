@@ -497,6 +497,7 @@ jobs:
             dist/oxide-server-*.zip
             dist/oxide-fab-*.zip
             dist/oxide-fab-*.tar.gz
+            dist/oxide-fab-*.exe
             dist/SHA256SUMS.txt
             artifacts/chaos-report.md
           fail_on_unmatched_files: false
