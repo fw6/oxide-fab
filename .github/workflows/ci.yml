@@ -318,16 +318,22 @@ jobs:
             [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT rect);
             [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+            [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int width, int height, bool repaint);
           }
           "@
           $proc = Get-Process oxide-fab | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
           if (-not $proc) { throw "the packaged app has no window" }
+          # The runner's desktop is narrower than the app's 1500 px default, and
+          # a window larger than the screen captures with a blank strip. The
+          # minimum size the app itself declares fits it exactly.
+          [OxideWin]::MoveWindow($proc.MainWindowHandle, 0, 0, 1120, 720, $true) | Out-Null
           [OxideWin]::SetForegroundWindow($proc.MainWindowHandle) | Out-Null
-          Start-Sleep -Seconds 2
+          Start-Sleep -Seconds 3
           $rect = New-Object OxideWin+RECT
           [OxideWin]::GetWindowRect($proc.MainWindowHandle, [ref]$rect) | Out-Null
           $width = $rect.Right - $rect.Left
           $height = $rect.Bottom - $rect.Top
+          Write-Host "capturing ${width}x${height} at $($rect.Left),$($rect.Top)"
           $bitmap = New-Object System.Drawing.Bitmap($width, $height)
           $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
           $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $bitmap.Size)
