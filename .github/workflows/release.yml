@@ -159,12 +159,6 @@ jobs:
             .
             crates/oxide-ui
 
-      - name: Cache apt archives
-        if: runner.os == 'Linux'
-        uses: actions/cache@v4
-        with:
-          path: /var/cache/apt/archives
-          key: apt-${{ runner.os }}-gtk-vulkan-1
 
       - name: Linux native libraries
         if: runner.os == 'Linux'
