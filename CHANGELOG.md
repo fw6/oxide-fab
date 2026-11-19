@@ -6,6 +6,26 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The write path no longer races itself.** Decisions and their appends now
+  share `write_lock` for the simulator and every operator action, so
+  `lot_event` order is the order the aggregate accepted; before, two writers
+  could commit in the opposite order and a restart could undo a hold or
+  re-dispatch a held lot. An operator append that fails puts the copied state
+  back instead of leaving a phantom. While the simulator holds a batch it could
+  not append, operator writes, `/api/snapshot` and what-if answer 503 rather
+  than reading state that is ahead of the log.
+- **A snapshot is now one critical section.** `SimState` carries the
+  `lot_event.seq` it reflects, captured with the state under `write_lock`
+  instead of a later `max_seq()` query, so a restart cannot skip a committed
+  event. `append_events` also returns the sequence of an event that is already
+  present, so retrying a committed-but-unacknowledged batch cannot replay it.
+- **Reset and replay cannot race the publisher.** A `delivery_lock` is held
+  across a delivery batch and across the truncates in `/admin/reset`,
+  `/admin/replay` and redelivery, so a claimed batch cannot land in a truncated
+  store.
+
 ### Changed
 
 - **PostgreSQL 16 → 18** (`postgres:18-bookworm`, 18.7). PG18 keeps the cluster

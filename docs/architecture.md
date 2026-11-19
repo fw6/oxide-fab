@@ -60,7 +60,8 @@ Rules enforced by the manifests:
 ## The write path (the important one)
 
 ```
-sim.tick() ──► DomainEvent[] ──► PgStore::append_events(events)
+sim.tick() / operator action ──► decide ──► PgStore::append_events(events)
+       (both under write_lock: the log order is the decision order)
                                    │
                      ┌─────────────┴───────────────────────────┐
                      │ BEGIN                                   │
@@ -78,11 +79,21 @@ sim.tick() ──► DomainEvent[] ──► PgStore::append_events(events)
                      BEGIN mark outbox.published_at + published_event COMMIT
 ```
 
+Both writers hold `write_lock` across the decision and the append. An operator
+append that fails puts the copied state back, so a refused request changes
+nothing. The simulator keeps its batch and retries it; while it does, the
+engine is paused, `write_gate` refuses operator writes and snapshots with 503,
+and `/api/snapshot` does not serve the state that is ahead of the log. A
+snapshot copies the state and `last_seq` in one critical section, and
+`append_events` returns the sequence of an event that is already present, so a
+retry cannot make the snapshot skip or replay it.
+
 Failure behaviour:
 
 | Failure | What happens | RPO |
 |---|---|---|
-| The append transaction fails | The batch stays in memory, the engine is paused, the batch is retried every 400 ms | 0 while the process lives |
+| An operator append fails | The state copy is put back, the request fails with 503, nothing is logged | 0 |
+| The simulator's append fails | The batch stays in memory, the engine is paused, operators and snapshots get 503, the batch is retried every 400 ms | 0 while the process lives |
 | GreptimeDB is down | Rows stay unpublished in `outbox`; the publisher retries | 0 (PG holds them) |
 | The process dies | Restart resumes from `snapshot` + `lot_event` after `last_seq` | 0 for committed events |
 | GreptimeDB loses its volume | `scripts/replay.sh` rebuilds every table from `lot_event` | 0 |
@@ -90,7 +101,10 @@ Failure behaviour:
 ## Read paths
 
 - `GET /api/snapshot` — the engine's view (queues, tools, lots), DB counts,
-  outbox stats, SPC buckets, SECS status, backup/restore reports.
+  outbox stats, SPC buckets, SECS status, backup/restore reports. The floor and
+  `last_seq` are copied under the write lock, so the dashboard folds exactly
+  the events the view does not already contain; while the engine is catching
+  up with the log the endpoint answers 503.
 - `GET /api/events?since=<seq>` — the incremental feed the dashboard folds into
   its own state. Sequence numbers come from `lot_event.seq`.
 - `GET /api/lots/{id}` — lot + wafers + per-wafer step records, folded from the

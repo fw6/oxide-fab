@@ -8,8 +8,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use oxide_api::{AppState, Shared};
+use oxide_api::{AppState, Shared, WriteGate};
 use oxide_core::Scenario;
+use oxide_core::events::DomainEvent;
 use oxide_sim::{SecsTrigger, Simulation};
 use oxide_store::outbox::Publisher;
 use oxide_store::{GreptimeDb, OutboxTimeline, PgStore};
@@ -118,6 +119,7 @@ async fn main() -> Result<()> {
         None
     };
 
+    let delivery_lock = Arc::new(tokio::sync::Mutex::new(()));
     let state: Shared = Arc::new(AppState {
         sim: simulation,
         store: store.clone(),
@@ -127,10 +129,12 @@ async fn main() -> Result<()> {
         secs,
         started_at: Instant::now(),
         write_lock: Arc::new(tokio::sync::Mutex::new(())),
+        write_gate: WriteGate::default(),
+        delivery_lock: Arc::clone(&delivery_lock),
     });
 
     spawn_simulator(Arc::clone(&state), shutdown_rx.clone());
-    let publisher = Publisher::new(store.clone(), greptime.clone(), timeline);
+    let publisher = Publisher::new(store.clone(), greptime.clone(), timeline, delivery_lock);
     tokio::spawn(publisher.run(shutdown_rx.clone()));
 
     let listener = tokio::net::TcpListener::bind(&config.http_addr)
@@ -203,8 +207,10 @@ async fn restore_simulation(store: &PgStore, scenario: &Scenario) -> Result<(Sim
                 .context("snapshot state does not match SimState")?;
             let mut sim = Simulation::from_state(scenario.clone(), state)?;
             let events = store.events_since(snapshot.last_seq, 100_000).await?;
+            sim.advance_seq(snapshot.last_seq);
             for persisted in &events {
                 sim.apply_event(&persisted.event);
+                sim.advance_seq(persisted.seq);
             }
             sim.rebuild_heap();
             Ok((
@@ -223,8 +229,11 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
         let mut last = Instant::now();
         // Events produced by the engine but not yet committed to the log. If
         // PostgreSQL goes away the batch is kept and retried; the engine is
-        // paused meanwhile so it cannot advance past the log.
-        let mut pending: Vec<oxide_core::events::DomainEvent> = Vec::new();
+        // paused and `write_gate` keeps operator writes and snapshots away
+        // from the state that is ahead of the log.
+        let mut pending: Vec<DomainEvent> = Vec::new();
+        let mut pending_secs: Vec<SecsTrigger> = Vec::new();
+        let mut pending_epoch = state.write_gate.epoch();
         let mut paused_for_database = false;
         loop {
             if *shutdown.borrow() {
@@ -234,7 +243,17 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
             let wall_ms = last.elapsed().as_millis() as i64;
             last = Instant::now();
 
-            let mut secs = Vec::new();
+            // Decide and append as one write: no operator can commit between
+            // the tick and its batch, so `lot_event` order is decision order.
+            let write_guard = state.write_lock.lock().await;
+            let epoch = state.write_gate.epoch();
+            if !pending.is_empty() && epoch != pending_epoch {
+                // `/admin/reset` replaced the engine and the log; this batch
+                // belongs to the previous demo.
+                pending.clear();
+                pending_secs.clear();
+                state.write_gate.set_catching_up(false);
+            }
             if pending.is_empty() {
                 let output = {
                     let Ok(mut sim) = state.sim.lock() else {
@@ -243,35 +262,44 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
                     let speed = sim.speed();
                     sim.tick(((wall_ms as f64) * speed) as i64)
                 };
-                pending.extend(output.events);
-                secs = output.secs;
+                pending = output.events;
+                pending_secs = output.secs;
+                pending_epoch = epoch;
             }
-            forward_secs(&state, secs);
-
-            if !pending.is_empty() {
+            if pending.is_empty() {
+                forward_secs(&state, std::mem::take(&mut pending_secs));
+            } else {
+                let count = pending.len();
                 match state.store.append_events(&pending, state.route()).await {
-                    Ok(_) => {
-                        let count = pending.len() as u64;
-                        pending.clear();
+                    Ok(last_seq) => {
                         if let Ok(mut sim) = state.sim.lock() {
-                            sim.mark_persisted(count);
+                            sim.mark_persisted(count as u64);
+                            sim.advance_seq(last_seq);
                             if paused_for_database {
                                 sim.set_running(true);
                             }
                         }
                         paused_for_database = false;
+                        pending.clear();
+                        state.write_gate.set_catching_up(false);
+                        forward_secs(&state, std::mem::take(&mut pending_secs));
                     }
                     Err(error) => {
-                        tracing::error!(%error, count = pending.len(), "append failed; holding the batch and pausing dispatch");
+                        tracing::error!(%error, count, "append failed; holding the batch and pausing dispatch");
                         if !paused_for_database {
                             if let Ok(mut sim) = state.sim.lock() {
                                 sim.set_running(false);
                             }
                             paused_for_database = true;
                         }
-                        tokio::time::sleep(Duration::from_millis(400)).await;
+                        state.write_gate.set_catching_up(true);
                     }
                 }
+            }
+            drop(write_guard);
+
+            if !pending.is_empty() {
+                tokio::time::sleep(Duration::from_millis(400)).await;
             }
 
             let persisted = state.sim.lock().map_or(0, |sim| sim.persisted_events());
@@ -318,11 +346,20 @@ fn forward_secs(state: &Shared, triggers: Vec<SecsTrigger>) {
 }
 
 async fn save_snapshot(state: &Shared) {
+    // One critical section for the copy and its sequence number. A writer
+    // cannot commit between them, and the gate keeps a snapshot away from a
+    // batch that failed to append. Holding the lock through the upsert also
+    // keeps `/admin/reset` from being overwritten by a snapshot of the
+    // previous demo.
+    let _guard = state.write_lock.lock().await;
+    if state.write_gate.catching_up() {
+        return;
+    }
     let (snapshot, last_seq) = {
         let Ok(sim) = state.sim.lock() else {
             return;
         };
-        (sim.snapshot(), sim.persisted_events())
+        (sim.snapshot(), sim.last_seq())
     };
     let value = match serde_json::to_value(&snapshot) {
         Ok(value) => value,
@@ -331,7 +368,6 @@ async fn save_snapshot(state: &Shared) {
             return;
         }
     };
-    let last_seq = state.store.max_seq().await.unwrap_or(last_seq as i64);
     if let Err(error) = state.store.save_snapshot("fab", &value, last_seq).await {
         tracing::warn!(%error, "could not write the snapshot");
     }

@@ -268,7 +268,16 @@ impl PgStore {
             .fetch_optional(&mut *tx)
             .await?;
             let Some(seq) = seq else {
-                // Already applied: projections and outbox already exist.
+                // Already applied: projections and outbox already exist. The
+                // caller still needs the row's position, or the next snapshot
+                // would claim a sequence that does not include it and replay
+                // the event onto a state that already has it.
+                let existing: i64 =
+                    sqlx::query_scalar("SELECT seq FROM lot_event WHERE event_id = $1")
+                        .bind(event.event_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
+                last_seq = last_seq.max(existing);
                 continue;
             };
             last_seq = last_seq.max(seq);

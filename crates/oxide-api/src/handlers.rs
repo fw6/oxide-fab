@@ -1,10 +1,10 @@
 //! Request handlers.
 //!
-//! Every mutating handler applies the change to the in-memory engine first,
-//! then appends the resulting events in one PostgreSQL transaction. If the
-//! database is unreachable the request fails with 503 before any state is
-//! written, so the dashboard never shows a lot move that the log does not
-//! contain.
+//! Every mutating handler decides the transition, appends its events and only
+//! then records the log position — all under `write_lock`, so `lot_event`
+//! order is the order the aggregate accepted. A failed append puts the
+//! in-memory copy back. While the simulator holds a batch it could not append,
+//! operator writes are refused with 503 and snapshots are not taken.
 
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use oxide_core::events::DomainEvent;
-use oxide_sim::Simulation;
+use oxide_sim::{SimError, Simulation};
 use oxide_store::outbox::{ReplayReport, replay as replay_events};
 use oxide_store::{DbCounts, OutboxStats};
 use serde::Deserialize;
@@ -247,7 +247,15 @@ pub async fn what_if(
     State(state): State<Shared>,
     Json(request): Json<WhatIfRequest>,
 ) -> Result<Json<oxide_sim::whatif::WhatIfComparison>, ApiError> {
+    // Copy a committed state: the write lock keeps this out of the window
+    // between an operator's decision and its append.
     let (scenario, snapshot) = {
+        let _guard = state.write_lock.lock().await;
+        if state.write_gate.catching_up() {
+            return Err(ApiError::Unavailable(
+                "the engine is catching up with the log; retry".to_owned(),
+            ));
+        }
         let sim = lock_sim(&state)?;
         (state.scenario.as_ref().clone(), sim.snapshot())
     };
@@ -350,10 +358,22 @@ pub async fn health(State(state): State<Shared>) -> Response {
 }
 
 pub async fn snapshot(State(state): State<Shared>) -> Result<Json<DashboardSnapshot>, ApiError> {
-    let sim = lock_sim(&state)?.view();
+    // The floor and the sequence number must describe the same instant. The
+    // write lock keeps this read out of the window between an operator's
+    // decision and its append, and away from a batch the engine could not
+    // commit.
+    let (sim, last_seq) = {
+        let _guard = state.write_lock.lock().await;
+        if state.write_gate.catching_up() {
+            return Err(ApiError::Unavailable(
+                "the engine is catching up with the log; retry".to_owned(),
+            ));
+        }
+        let sim = lock_sim(&state)?;
+        (sim.view(), sim.last_seq())
+    };
     let db = state.store.counts().await?;
     let outbox = state.store.outbox_stats().await?;
-    let last_seq = state.store.max_seq().await?;
     let greptime_ok =
         tokio::time::timeout(std::time::Duration::from_millis(700), state.greptime.ping())
             .await
@@ -423,22 +443,17 @@ pub async fn hold_lot(
     Path(lot_id): Path<String>,
     Json(request): Json<HoldRequest>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.hold_lot(&lot_id, &request.reason)?
-    };
-    finish_action(&state, &lot_id, "hold", events).await
+    finish_action(&state, &lot_id, "hold", |sim| {
+        sim.hold_lot(&lot_id, &request.reason)
+    })
+    .await
 }
 
 pub async fn release_lot(
     State(state): State<Shared>,
     Path(lot_id): Path<String>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.release_lot(&lot_id)?
-    };
-    finish_action(&state, &lot_id, "release", events).await
+    finish_action(&state, &lot_id, "release", |sim| sim.release_lot(&lot_id)).await
 }
 
 pub async fn rework_lot(
@@ -446,11 +461,10 @@ pub async fn rework_lot(
     Path(lot_id): Path<String>,
     Json(request): Json<ReworkRequest>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.rework_lot(&lot_id, request.to_step, &request.reason)?
-    };
-    finish_action(&state, &lot_id, "rework", events).await
+    finish_action(&state, &lot_id, "rework", |sim| {
+        sim.rework_lot(&lot_id, request.to_step, &request.reason)
+    })
+    .await
 }
 
 pub async fn split_lot(
@@ -458,11 +472,10 @@ pub async fn split_lot(
     Path(lot_id): Path<String>,
     Json(request): Json<SplitRequest>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.split_lot(&lot_id, &request.children)?
-    };
-    finish_action(&state, &lot_id, "split", events).await
+    finish_action(&state, &lot_id, "split", |sim| {
+        sim.split_lot(&lot_id, &request.children)
+    })
+    .await
 }
 
 pub async fn merge_lots(
@@ -470,11 +483,10 @@ pub async fn merge_lots(
     Path(lot_id): Path<String>,
     Json(request): Json<MergeRequest>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.merge_lots(&lot_id, &request.sources)?
-    };
-    finish_action(&state, &lot_id, "merge", events).await
+    finish_action(&state, &lot_id, "merge", |sim| {
+        sim.merge_lots(&lot_id, &request.sources)
+    })
+    .await
 }
 
 pub async fn scrap_wafer(
@@ -482,22 +494,64 @@ pub async fn scrap_wafer(
     Path(lot_id): Path<String>,
     Json(request): Json<ScrapRequest>,
 ) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        lock_sim(&state)?.scrap_wafer(&lot_id, &request.wafer_id, &request.reason)?
-    };
-    finish_action(&state, &lot_id, "scrap", events).await
+    finish_action(&state, &lot_id, "scrap", |sim| {
+        sim.scrap_wafer(&lot_id, &request.wafer_id, &request.reason)
+    })
+    .await
 }
 
-async fn finish_action(
+/// Decide a transition and append it as one write.
+///
+/// The write lock spans both halves, so two writers cannot commit in the
+/// opposite order to the aggregate's decisions. The state is copied before
+/// the decision: if the append fails, the copy goes back, and the engine never
+/// holds a change the log does not contain.
+async fn commit_decision<F>(state: &Arc<AppState>, decide: F) -> Result<(usize, i64), ApiError>
+where
+    F: FnOnce(&mut Simulation) -> Result<Vec<DomainEvent>, SimError>,
+{
+    let _guard = state.write_lock.lock().await;
+    if state.write_gate.catching_up() {
+        return Err(ApiError::Unavailable(
+            "the engine is catching up with the log; retry".to_owned(),
+        ));
+    }
+    let (before, events) = {
+        let mut sim = lock_sim(state)?;
+        let before = sim.snapshot();
+        let events = match decide(&mut sim) {
+            Ok(events) => events,
+            Err(error) => {
+                sim.restore(before);
+                return Err(error.into());
+            }
+        };
+        (before, events)
+    };
+    match state.store.append_events(&events, state.route()).await {
+        Ok(last_seq) => {
+            let mut sim = lock_sim(state)?;
+            sim.mark_persisted(events.len() as u64);
+            sim.advance_seq(last_seq);
+            Ok((events.len(), last_seq))
+        }
+        Err(error) => {
+            lock_sim(state)?.restore(before);
+            Err(error.into())
+        }
+    }
+}
+
+async fn finish_action<F>(
     state: &Arc<AppState>,
     lot_id: &str,
     action: &str,
-    events: Vec<DomainEvent>,
-) -> Result<Json<ActionResponse>, ApiError> {
-    let count = events.len();
-    let last_seq = state.store.append_events(&events, state.route()).await?;
-    lock_sim(state)?.mark_persisted(count as u64);
+    decide: F,
+) -> Result<Json<ActionResponse>, ApiError>
+where
+    F: FnOnce(&mut Simulation) -> Result<Vec<DomainEvent>, SimError>,
+{
+    let (count, last_seq) = commit_decision(state, decide).await?;
     let detail = json!({ "events": count, "action": action });
     let _ = state.store.audit("operator", action, lot_id, &detail).await;
     Ok(Json(ActionResponse {
@@ -518,15 +572,11 @@ pub async fn pause(State(state): State<Shared>) -> Result<Json<Value>, ApiError>
 }
 
 pub async fn step(State(state): State<Shared>) -> Result<Json<ActionResponse>, ApiError> {
-    let events = {
-        let _guard = state.write_lock.lock().await;
-        let mut sim = lock_sim(&state)?;
+    let (count, last_seq) = commit_decision(&state, |sim| {
         sim.set_running(false);
-        sim.step().events
-    };
-    let count = events.len();
-    let last_seq = state.store.append_events(&events, state.route()).await?;
-    lock_sim(&state)?.mark_persisted(count as u64);
+        Ok(sim.step().events)
+    })
+    .await?;
     Ok(Json(ActionResponse {
         events: count,
         last_seq,
@@ -692,6 +742,7 @@ pub async fn replay(
     let report = replay_events(
         &state.store,
         &state.greptime,
+        &state.delivery_lock,
         state.route(),
         request.truncate,
     )
@@ -700,11 +751,15 @@ pub async fn replay(
 }
 
 pub async fn reset(State(state): State<Shared>) -> Result<Json<Value>, ApiError> {
-    // Stop the line and let the simulator's current batch commit or fail
-    // before the log is truncated.
+    // Stop the line. The write lock then guarantees no decision or append is
+    // in flight when the log is truncated, and the delivery lock keeps a
+    // claimed outbox batch out of the truncated store.
     lock_sim(&state)?.set_running(false);
-    let _guard = state.write_lock.lock().await;
-    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let _write = state.write_lock.lock().await;
+    let _delivery = state.delivery_lock.lock().await;
+    // Drop any engine batch that could not commit and move to a new epoch so
+    // the simulator does not retry it into the fresh log.
+    state.write_gate.reset();
     state.store.reset().await?;
     if let Err(error) = state.greptime.truncate_all().await {
         tracing::warn!(%error, "could not truncate GreptimeDB during reset");
@@ -731,6 +786,7 @@ pub async fn redeliver(
     State(state): State<Shared>,
     Path(path): Path<RedeliverPath>,
 ) -> Result<Json<Value>, ApiError> {
+    let _delivery = state.delivery_lock.lock().await;
     let events = state.store.all_events().await?;
     let persisted = events
         .into_iter()

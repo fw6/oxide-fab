@@ -4,6 +4,7 @@
 pub mod dto;
 pub mod handlers;
 
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
@@ -13,6 +14,42 @@ use oxide_core::Scenario;
 use oxide_secs::SecsHandle;
 use oxide_sim::Simulation;
 use oxide_store::{GreptimeDb, OutboxTimeline, PgStore};
+
+/// Coordinates the simulator task with operator writes and snapshots.
+///
+/// `catching_up` is set while the engine holds a batch `append_events` could
+/// not commit. Its in-memory state is then ahead of the log, so no operator
+/// decision may be based on it and no snapshot may capture it. `epoch` is
+/// bumped by `/admin/reset` so the simulator drops a batch that belongs to the
+/// previous demo instead of retrying it into the truncated log.
+#[derive(Debug, Default)]
+pub struct WriteGate {
+    catching_up: AtomicBool,
+    epoch: AtomicU64,
+}
+
+impl WriteGate {
+    #[must_use]
+    pub fn catching_up(&self) -> bool {
+        self.catching_up.load(Ordering::Acquire)
+    }
+
+    pub fn set_catching_up(&self, value: bool) {
+        self.catching_up.store(value, Ordering::Release);
+    }
+
+    #[must_use]
+    pub fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Acquire)
+    }
+
+    /// Start over after `/admin/reset`: clear the gate and return the new
+    /// epoch.
+    pub fn reset(&self) -> u64 {
+        self.catching_up.store(false, Ordering::Release);
+        self.epoch.fetch_add(1, Ordering::AcqRel) + 1
+    }
+}
 
 /// Everything a handler needs. Cheap to clone: all fields are handles.
 #[derive(Debug)]
@@ -25,8 +62,13 @@ pub struct AppState {
     pub scenario: Arc<Scenario>,
     pub secs: Option<Arc<SecsHandle>>,
     pub started_at: Instant,
-    /// Serializes operator actions with the simulator's persist step.
+    /// Serializes every decision with its append, so `lot_event` order is the
+    /// order the aggregate accepted.
     pub write_lock: Arc<tokio::sync::Mutex<()>>,
+    pub write_gate: WriteGate,
+    /// Serializes outbox delivery with the truncates performed by reset and
+    /// replay.
+    pub delivery_lock: Arc<tokio::sync::Mutex<()>>,
 }
 
 pub type Shared = Arc<AppState>;
@@ -84,4 +126,22 @@ pub fn router(state: Shared) -> Router {
         // Applied last so every route above, and the nested API, gets it.
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::WriteGate;
+
+    #[test]
+    fn reset_clears_the_gate_and_moves_the_epoch() {
+        let gate = WriteGate::default();
+        let epoch = gate.epoch();
+        gate.set_catching_up(true);
+
+        let next = gate.reset();
+
+        assert!(!gate.catching_up());
+        assert_eq!(gate.epoch(), next);
+        assert!(next > epoch);
+    }
 }

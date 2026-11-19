@@ -70,11 +70,17 @@ pub struct PublishReport {
 }
 
 /// Deliver one batch. Returns how much was accepted by the store.
+///
+/// The delivery lock keeps a batch out of a `TRUNCATE` performed by reset or
+/// replay: a publisher that had already claimed rows must finish, and its rows
+/// must be in the store before the truncate, not after it.
 pub async fn publish_once(
     store: &PgStore,
     greptime: &GreptimeDb,
+    delivery_lock: &tokio::sync::Mutex<()>,
     batch: i64,
 ) -> StoreResult<PublishReport> {
+    let _guard = delivery_lock.lock().await;
     let claimed = store.claim_outbox(batch).await?;
     if claimed.is_empty() {
         return Ok(PublishReport {
@@ -118,17 +124,24 @@ pub struct Publisher {
     pub store: PgStore,
     pub greptime: GreptimeDb,
     pub timeline: OutboxTimeline,
+    pub delivery_lock: Arc<tokio::sync::Mutex<()>>,
     pub poll_interval: Duration,
     pub batch: i64,
 }
 
 impl Publisher {
     #[must_use]
-    pub fn new(store: PgStore, greptime: GreptimeDb, timeline: OutboxTimeline) -> Self {
+    pub fn new(
+        store: PgStore,
+        greptime: GreptimeDb,
+        timeline: OutboxTimeline,
+        delivery_lock: Arc<tokio::sync::Mutex<()>>,
+    ) -> Self {
         Self {
             store,
             greptime,
             timeline,
+            delivery_lock,
             poll_interval: Duration::from_millis(200),
             batch: 64,
         }
@@ -141,7 +154,7 @@ impl Publisher {
             if *shutdown.borrow() {
                 return;
             }
-            match publish_once(&self.store, &self.greptime, self.batch).await {
+            match publish_once(&self.store, &self.greptime, &self.delivery_lock, self.batch).await {
                 Ok(report) => delivered_rows += report.delivered_rows as u64,
                 Err(error) => {
                     tracing::warn!(%error, "outbox delivery failed; rows stay pending");
@@ -182,9 +195,11 @@ pub struct ReplayReport {
 pub async fn replay(
     store: &PgStore,
     greptime: &GreptimeDb,
+    delivery_lock: &tokio::sync::Mutex<()>,
     route: &Route,
     truncate: bool,
 ) -> StoreResult<ReplayReport> {
+    let _guard = delivery_lock.lock().await;
     let started = std::time::Instant::now();
     if truncate {
         greptime.truncate_all().await?;

@@ -208,6 +208,11 @@ pub struct SimState {
     pub running: bool,
     pub speed: f64,
     pub persisted_events: u64,
+    /// The `lot_event.seq` this state corresponds to. It is written next to
+    /// the state so a snapshot cannot claim a log position the state does not
+    /// contain.
+    #[serde(default)]
+    pub last_seq: i64,
     /// The most recent dispatch decisions, newest last. In-memory only: it is
     /// a view of the log, not a second source of truth, and snapshots carry it
     /// as a convenience.
@@ -267,6 +272,7 @@ impl Simulation {
             running: true,
             speed: scenario.speed,
             persisted_events: 0,
+            last_seq: 0,
             dispatch: Vec::new(),
         };
         let mut sim = Self {
@@ -348,6 +354,23 @@ impl Simulation {
     #[must_use]
     pub fn persisted_events(&self) -> u64 {
         self.state.persisted_events
+    }
+
+    /// The log position this state reflects.
+    #[must_use]
+    pub fn last_seq(&self) -> i64 {
+        self.state.last_seq
+    }
+
+    /// Move the recorded log position forward. Never moves it back.
+    pub fn advance_seq(&mut self, seq: i64) {
+        self.state.last_seq = self.state.last_seq.max(seq);
+    }
+
+    /// Put back a state copied before a decision that did not commit.
+    pub fn restore(&mut self, state: SimState) {
+        self.state = state;
+        self.rebuild_heap();
     }
 
     /// Advance the clock by `dt_ms` and process everything that became due.
@@ -1847,6 +1870,31 @@ mod tests {
                 .values()
                 .any(|aggregate| aggregate.lot.state == LotState::Completed)
         );
+    }
+
+    #[test]
+    fn a_failed_append_can_put_the_state_back_without_moving_the_log_position() {
+        let mut sim = Simulation::new(scenario()).unwrap();
+        for _ in 0..20 {
+            sim.tick(100);
+        }
+        sim.advance_seq(41);
+        let committed = sim.snapshot();
+
+        sim.tick(100);
+        assert_ne!(sim.snapshot(), committed);
+
+        sim.restore(committed.clone());
+        assert_eq!(sim.snapshot(), committed);
+        assert_eq!(sim.last_seq(), 41);
+    }
+
+    #[test]
+    fn the_log_position_never_moves_back() {
+        let mut sim = Simulation::new(scenario()).unwrap();
+        sim.advance_seq(40);
+        sim.advance_seq(12);
+        assert_eq!(sim.last_seq(), 40);
     }
 
     #[test]
