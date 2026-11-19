@@ -102,7 +102,7 @@ cargo run -p oxide-render --bin oxide-render-evidence -- --out artifacts/render
 
 # Linux 容器内全流程（macOS 主机有 Docker 时；host-ip 让容器内应用连到
 # 本机后端，不给则只跑演示数据）
-OXIDE_API_URL=http://<host-ip>:8080 ./scripts/linux-container-evidence.sh
+OXIDE_API_URL=http://<host-ip>:18080 ./scripts/linux-container-evidence.sh
 ```
 
 ## 5. 已知未在本机执行

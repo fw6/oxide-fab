@@ -33,7 +33,7 @@ impl Config {
             std::env::var("SECS_ENABLED").map_or(true, |value| value != "false" && value != "0");
         Self {
             http_addr: std::env::var("OXIDE_HTTP_ADDR")
-                .unwrap_or_else(|_| "0.0.0.0:8080".to_owned()),
+                .unwrap_or_else(|_| "0.0.0.0:18080".to_owned()),
             database_url: std::env::var("DATABASE_URL")
                 .unwrap_or_else(|_| "postgres://oxide@127.0.0.1:5432/oxide".to_owned()),
             greptime_url: std::env::var("GREPTIME_URL")

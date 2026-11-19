@@ -12,7 +12,7 @@ if [ -f .env ]; then
   set +a
 fi
 
-API="${API:-http://127.0.0.1:8080}"
+API="${API:-http://127.0.0.1:18080}"
 ARTIFACTS="${ARTIFACTS:-$ROOT/artifacts}"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 mkdir -p "$ARTIFACTS"

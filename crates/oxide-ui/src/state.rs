@@ -246,7 +246,7 @@ impl Ui {
     /// The API's base URL: the same name the scripts use.
     #[must_use]
     pub fn api_base() -> String {
-        std::env::var("OXIDE_API_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".to_owned())
+        std::env::var("OXIDE_API_URL").unwrap_or_else(|_| "http://127.0.0.1:18080".to_owned())
     }
 
     #[must_use]

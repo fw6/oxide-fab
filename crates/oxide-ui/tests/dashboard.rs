@@ -144,23 +144,23 @@ fn dashboard_with_snapshot(snapshot: &str) -> (Headless, Arc<StubNetwork>) {
     disable_render();
     let network = Arc::new(StubNetwork::new([
         (
-            "GET http://127.0.0.1:8080/api/snapshot".to_owned(),
+            "GET http://127.0.0.1:18080/api/snapshot".to_owned(),
             json(snapshot),
         ),
         (
-            "GET http://127.0.0.1:8080/api/events*".to_owned(),
+            "GET http://127.0.0.1:18080/api/events*".to_owned(),
             json(EVENTS),
         ),
         (
-            "GET http://127.0.0.1:8080/api/lots/LOT-0001".to_owned(),
+            "GET http://127.0.0.1:18080/api/lots/LOT-0001".to_owned(),
             json(DETAIL),
         ),
         (
-            "GET http://127.0.0.1:8080/api/analytics".to_owned(),
+            "GET http://127.0.0.1:18080/api/analytics".to_owned(),
             json(ANALYTICS),
         ),
         (
-            "GET http://127.0.0.1:8080/api/monitor".to_owned(),
+            "GET http://127.0.0.1:18080/api/monitor".to_owned(),
             json(MONITOR),
         ),
     ]));

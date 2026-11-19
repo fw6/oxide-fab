@@ -45,7 +45,7 @@ docker compose up -d --wait
 `docker compose up` 会在本机构建 `oxide` 与 MinIO 镜像；release 流程另外发布
 预构建镜像 `ghcr.io/fw6/oxide-fab:latest`（linux/amd64 + linux/arm64）。
 
-桌面工作台（默认连 `http://127.0.0.1:8080`，`OXIDE_API_URL` 可改）：
+桌面工作台（默认连 `http://127.0.0.1:18080`，`OXIDE_API_URL` 可改）：
 
 ```sh
 cd crates/oxide-ui

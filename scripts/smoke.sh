@@ -41,7 +41,7 @@ import json
 import os
 import urllib.request
 
-api = os.environ.get("API", "http://127.0.0.1:8080")
+api = os.environ.get("API", "http://127.0.0.1:18080")
 config = json.load(urllib.request.urlopen(api + "/api/config"))
 route = config["scenario"]["route"]["steps"]
 expected_steps = {int(step["step_no"]): step for step in route}
