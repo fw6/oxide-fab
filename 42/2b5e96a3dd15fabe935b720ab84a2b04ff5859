@@ -1,0 +1,28 @@
+Dockerfile.pg
+  s_7a68cbf16bb9fc::t_7c2bd705877171 1,3-8,10-21,25-27
+scripts/restore.sh
+  s_7a68cbf16bb9fc::t_2b4af6e2586a0c 80
+  s_7a68cbf16bb9fc::t_04ccd9618cceab 86
+  s_7a68cbf16bb9fc::t_ecad209f0f2b78 67-71
+  s_7a68cbf16bb9fc::t_6725f39b3cc3be 74-78
+docker-compose.yml
+  s_7a68cbf16bb9fc::t_2b4af6e2586a0c 29,56
+docker-compose.restore.yml
+  s_7a68cbf16bb9fc::t_2b4af6e2586a0c 21,40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "422b5e96a3dd15fabe935b720ab84a2b04ff5859",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
