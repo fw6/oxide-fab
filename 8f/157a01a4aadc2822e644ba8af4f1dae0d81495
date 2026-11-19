@@ -1,0 +1,40 @@
+README.md
+  s_64fc6b1b9fb52d::t_17de44463c8de8 48
+docs/acceptance-phase2.md
+  s_64fc6b1b9fb52d::t_18b523603e9542 105
+scripts/smoke.sh
+  s_64fc6b1b9fb52d::t_196de3d8a72339 44
+crates/oxide-ui/src/state.rs
+  s_64fc6b1b9fb52d::t_fe6a20a21c26e9 249
+scripts/lib.sh
+  s_64fc6b1b9fb52d::t_52feb505093e8c 15
+docker-compose.yml
+  s_64fc6b1b9fb52d::t_b235bda2cb643c 173
+  s_64fc6b1b9fb52d::t_4ccb2c3e0d50b1 178
+  s_64fc6b1b9fb52d::t_e7e9e9daa8f64f 180
+Dockerfile
+  s_64fc6b1b9fb52d::t_29aac2ae0b1d2c 56
+  s_64fc6b1b9fb52d::t_77437b5754ae5a 49
+crates/oxide-ui/tests/dashboard.rs
+  s_64fc6b1b9fb52d::t_3f6bb9be631b8a 147,151,155,159,163
+.env.example
+  s_64fc6b1b9fb52d::t_00eebe97af7dc0 17
+bins/oxide-server/src/main.rs
+  s_64fc6b1b9fb52d::t_697469b8eb9f8f 36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "8f157a01a4aadc2822e644ba8af4f1dae0d81495",
+  "prompts": {},
+  "sessions": {
+    "s_64fc6b1b9fb52d": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_e635a043-a98d-47f8-9121-5a72af6b709c",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
