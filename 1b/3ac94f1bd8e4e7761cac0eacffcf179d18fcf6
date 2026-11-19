@@ -1,0 +1,130 @@
+bins/oxide-server/src/main.rs
+  s_02cdcd57a80496::t_9e81454ae83db9 122,132-133
+  s_02cdcd57a80496::t_5166faba730a0c 349-357,362
+  s_02cdcd57a80496::t_13dff5d2031b55 137
+  s_02cdcd57a80496::t_3e22e0d09643ce 210,213
+  s_02cdcd57a80496::t_2323913a3e7375 232-236,246-247,249-256,265-267,269-272,274,276-277,283-285,288,295,300-302
+  s_02cdcd57a80496::t_dd91bd56780733 248
+  s_02cdcd57a80496::t_00f96ae4231874 11,13
+  s_02cdcd57a80496::t_bf1489197ecfe0 299
+CHANGELOG.md
+  s_02cdcd57a80496::t_0fba3b67d957f7 9-28
+crates/oxide-store/src/outbox.rs
+  s_02cdcd57a80496::t_fadc11bfd88da8 73-76,80,83
+  s_02cdcd57a80496::t_37cfbddc3f5244 198,202
+  s_02cdcd57a80496::t_13dff5d2031b55 157
+  s_02cdcd57a80496::t_c0fe795711bd6b 127,134-139,144
+crates/oxide-api/src/lib.rs
+  s_02cdcd57a80496::t_91fe6218f7d188 130-147
+  s_02cdcd57a80496::t_ef14f68ce6a9a8 7,18-53,65-66,68-71
+docs/verification/write-path/Fixed.cfg
+  s_02cdcd57a80496::t_ff6adb0af5b599 7
+  s_02cdcd57a80496::t_5650b24e3c6058 1-6,10-14
+  s_02cdcd57a80496::t_18aaf4109337cd 9
+  s_02cdcd57a80496::t_78de75494e9bd1 8
+crates/oxide-api/src/handlers.rs
+  s_02cdcd57a80496::t_4e23e9d2e2dddb 3-7
+  s_02cdcd57a80496::t_e88fe52836b203 361,365,372-374
+  s_02cdcd57a80496::t_8eb582c40565bb 250-251,253-258
+  s_02cdcd57a80496::t_13dff5d2031b55 509
+  s_02cdcd57a80496::t_2ae2b53b133b45 789
+  s_02cdcd57a80496::t_f0e35a51dcb116 446-449,456,464-467,475-478,486-489,497-508,510-529,531-542,545,549-554,575,577-579
+  s_02cdcd57a80496::t_57cef1b3cd032c 362-364,366-371
+  s_02cdcd57a80496::t_34f27685c6a8a5 17
+  s_02cdcd57a80496::t_5a56d87a62a214 745,754-756,758-762
+docs/verification/write-path/SnapshotRace.cfg
+  s_02cdcd57a80496::t_706e89e4d96541 10
+  s_02cdcd57a80496::t_0b1593a59b82bf 9
+  s_02cdcd57a80496::t_1ff4459d511463 1-8,11-15
+docs/verification/write-path/LegalLog.cfg
+  s_02cdcd57a80496::t_4a565d3c67a41a 7
+  s_02cdcd57a80496::t_98eae59bd806c8 1-5,9-13
+  s_02cdcd57a80496::t_d8e0f5e7be8ed9 6
+  s_02cdcd57a80496::t_0c4cf00a0754a7 8
+crates/oxide-sim/src/lib.rs
+  s_02cdcd57a80496::t_aa3b97379670a4 211-215
+  s_02cdcd57a80496::t_6dd09678de3161 1876-1899
+  s_02cdcd57a80496::t_3ade05e91dde15 275
+  s_02cdcd57a80496::t_7c5b6a0dc0e1ef 359-375
+docs/verification/write-path/WritePath.tla
+  s_02cdcd57a80496::t_0622f3a6e624f0 14
+  s_02cdcd57a80496::t_562909ea399ae1 166-169
+  s_02cdcd57a80496::t_6b12aafb467e90 195
+  s_02cdcd57a80496::t_12a061f1aa9057 99
+  s_02cdcd57a80496::t_bb2472a3886669 200
+  s_02cdcd57a80496::t_393036267208b3 145,155
+  s_02cdcd57a80496::t_8866e6d02c4d9a 121
+  s_02cdcd57a80496::t_d924afc1a424aa 190
+  s_02cdcd57a80496::t_5f2a5856aa221d 1-12,15-18,20-41,43-45,48-49,51-55,57-60,62-96,98,100-101,103-104,110-112,114-115,117-120,122-127,129-130,132-136,138-144,146-150,152-154,156-161,170,172-173,175-182,184-189,191-194,197-199,201-212,214-218,220,222-223,225-232,237
+  s_02cdcd57a80496::t_85718bc90c55af 105-109,113
+  s_02cdcd57a80496::t_ab54ba26ec90ca 233-236
+  s_02cdcd57a80496::t_e44b38b552084d 102
+  s_02cdcd57a80496::t_6a5d15d258b951 97
+  s_02cdcd57a80496::t_65b2f9350646f2 13,19
+  s_02cdcd57a80496::t_835c0da884404e 196
+  s_02cdcd57a80496::t_dce56bb9d8d5e4 151
+  s_02cdcd57a80496::t_067f01972124d5 224
+  s_02cdcd57a80496::t_ec23219d65fccd 171
+  s_02cdcd57a80496::t_e9535a73afa9f2 221
+  s_02cdcd57a80496::t_e8e75ce6e80245 61
+  s_02cdcd57a80496::t_4d6376c90d055e 128
+  s_02cdcd57a80496::t_d505ec3290a068 219
+  s_02cdcd57a80496::t_e5af31552d0cdc 116
+  s_02cdcd57a80496::t_584467993e0361 213
+  s_02cdcd57a80496::t_9719988c673c00 42
+  s_02cdcd57a80496::t_6ef55720a1abcd 56
+  s_02cdcd57a80496::t_7cead934de55e8 131
+  s_02cdcd57a80496::t_a640f5e9c8a484 162-165
+  s_02cdcd57a80496::t_1436aa2cd5acf1 50
+  s_02cdcd57a80496::t_7001beb47b4973 174
+  s_02cdcd57a80496::t_5b19dbc5363556 183
+  s_02cdcd57a80496::t_c765aa9d3a4fe6 137
+  s_02cdcd57a80496::t_e84bbc7a4ceb52 46-47
+docs/architecture.md
+  s_02cdcd57a80496::t_173af004a277a8 104-107
+  s_02cdcd57a80496::t_5403b1bbfd283e 63-64,82-90,95-96
+docs/verification/write-path/WritePath.cfg
+  s_02cdcd57a80496::t_80516137b70bb1 7
+  s_02cdcd57a80496::t_0d3529c047b96a 9
+  s_02cdcd57a80496::t_a6bcc64404df7f 8
+  s_02cdcd57a80496::t_1039d052633b5f 1-6,10-14
+docs/verification/write-path/README.md
+  s_02cdcd57a80496::t_3a7d3b51bef192 1-20,48-53,59-144,146-229,231,241,245,249-252,254-255
+  s_02cdcd57a80496::t_f2977b0eadc89a 230,232-240,242-244,246-248,253,256
+  s_02cdcd57a80496::t_95e2f89a47ac9f 145
+  s_02cdcd57a80496::t_e67d637dc62815 21-22,24-47
+  s_02cdcd57a80496::t_90a2fe7a29cdee 23
+  s_02cdcd57a80496::t_524415ed7332f6 54-58
+docs/verification/write-path/Recovery.cfg
+  s_02cdcd57a80496::t_e8f24aeef80f9f 7
+  s_02cdcd57a80496::t_c5e6ebd4ded831 8
+  s_02cdcd57a80496::t_3188e980201820 1-6,10-14
+  s_02cdcd57a80496::t_f705c8169958fc 9
+docs/verification/write-path/FailedAppend.cfg
+  s_02cdcd57a80496::t_fbf7d449531372 1-15
+docs/verification/write-path/FixedWrites.cfg
+  s_02cdcd57a80496::t_6d8c668fde88f4 1-6,10-14
+  s_02cdcd57a80496::t_4dd9bc66b482b3 7
+  s_02cdcd57a80496::t_1fb508291b6625 9
+  s_02cdcd57a80496::t_c81bfb0a67e8b6 8
+docs/verification/write-path/EngineRace.cfg
+  s_02cdcd57a80496::t_c7382c11a837a1 1-14
+crates/oxide-store/src/pg.rs
+  s_02cdcd57a80496::t_c0488e6f9416ec 271-280
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "1b3ac94f1bd8e4e7761cac0eacffcf179d18fcf6",
+  "prompts": {},
+  "sessions": {
+    "s_02cdcd57a80496": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_ca223abf-a403-47ea-a856-b5afb7b7dd37",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
