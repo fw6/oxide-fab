@@ -1,0 +1,23 @@
+docs/architecture.md
+  s_7a68cbf16bb9fc::t_c718b9162b990f 174-176,180-184
+docs/decisions/009-postgres-18.md
+  s_7a68cbf16bb9fc::t_2d5cf948e6f14b 1-82
+CHANGELOG.md
+  s_7a68cbf16bb9fc::t_6a4d26e976bd4c 7-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "bdef8c03d33f5921be822fee4d6cebacd2d2d202",
+  "prompts": {},
+  "sessions": {
+    "s_7a68cbf16bb9fc": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_861f754c-e0e3-458e-954a-1b4fc2bcd5e9",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
