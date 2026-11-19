@@ -18,7 +18,7 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-oxide}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env first}
       PGBACKREST_STANZA: oxide
-      PGBACKREST_PG1_PATH: /var/lib/postgresql/data
+      PGBACKREST_PG1_PATH: /var/lib/postgresql/18/docker
       PGBACKREST_PG1_PORT: 5432
       PGBACKREST_PG1_USER: ${POSTGRES_USER:-oxide}
       PGBACKREST_PG1_DATABASE: ${POSTGRES_DB:-oxide}
@@ -37,7 +37,7 @@ services:
       - -c
       - "hot_standby=on"
     volumes:
-      - restore_pgdata:/var/lib/postgresql/data
+      - restore_pgdata:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-oxide} -d ${POSTGRES_DB:-oxide}"]
       interval: 2s

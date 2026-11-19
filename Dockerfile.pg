@@ -1,10 +1,27 @@
-# PostgreSQL with pgBackRest, so the same cluster can archive WAL and take
+# PostgreSQL 18 with pgBackRest, so the same cluster can archive WAL and take
 # full backups into the S3-compatible `oxide-backup` bucket.
-FROM postgres:16-bookworm
+#
+# Bookworm's own pgBackRest is 2.45 (2023, PG16 era) and refuses a PG18 cluster,
+# so it comes from the PGDG repository - which is also where this base image's
+# PostgreSQL already comes from (postgresql-18 18.7-1.pgdg12+2), so adding the
+# repository does not install a second server. PGDG currently ships 2.60.1.
+FROM postgres:18-bookworm
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends pgbackrest ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends ca-certificates curl; \
+    install -d /usr/share/postgresql-common/pgdg; \
+    curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+      -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc; \
+    echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+      > /etc/apt/sources.list.d/pgdg.list; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends pgbackrest; \
+    rm -rf /var/lib/apt/lists/*
 
 # pgBackRest reads PGBACKREST_* environment variables (see docker-compose.yml),
 # so no credential is baked into the image.
+#
+# PG18 keeps the cluster in /var/lib/postgresql/18/docker and declares
+# /var/lib/postgresql as the volume; the compose files mount there too.
