@@ -64,18 +64,26 @@ echo "   WAL archived through ${now_wal}"
 
 echo "-- down: clearing the isolated instance"
 "${RESTORE_COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-"${RESTORE_COMPOSE[@]}" create >/dev/null
+# --build on every start: compose only builds when the image is missing, and a
+# stale image here means the drill restores into a different PostgreSQL than the
+# one the backup came from (seen on the 18 upgrade: a PG16 image restored an
+# empty cluster and the checks failed for the wrong reason).
+"${RESTORE_COMPOSE[@]}" create --build >/dev/null
 
 echo "-- pitr: pgBackRest restore into the isolated volume"
-"${RESTORE_COMPOSE[@]}" run --rm --no-deps --entrypoint sh postgres -c "
+# As the postgres user: pgBackRest creates $PGDATA with 0700 owned by whoever
+# runs it, and the entrypoint re-execs itself as postgres before it touches the
+# data directory. A root-owned 18/ there stops the server with "mkdir: cannot
+# create directory '/var/lib/postgresql/18': Permission denied".
+"${RESTORE_COMPOSE[@]}" run --rm --no-deps --build --user postgres --entrypoint sh postgres -c "
   set -e
-  rm -rf /var/lib/postgresql/data/*
+  rm -rf /var/lib/postgresql/18/docker/*
   pgbackrest --stanza=oxide --type=time --target='${target_time}' --target-action=promote \
     --log-level-console=info restore
 " | tee "$ARTIFACTS/restore-pgbackrest-${TS}.log" | tail -12
 
 echo "-- up: starting the isolated PostgreSQL and GreptimeDB"
-"${RESTORE_COMPOSE[@]}" up -d --wait postgres greptimedb
+"${RESTORE_COMPOSE[@]}" up -d --wait --build postgres greptimedb
 
 echo "-- waiting for recovery to finish and promote"
 recovered="f"

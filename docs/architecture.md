@@ -171,11 +171,17 @@ the first bucket is filling.
 
 ## Deployment
 
-One compose file: `postgres` (pgBackRest, WAL archiving to MinIO), `minio`
-(built from its pinned source), `minio-init`, `greptimedb` (S3 backend) and
-`oxide`. A separate
+One compose file: `postgres` (PostgreSQL 18 with pgBackRest from PGDG, WAL
+archiving to MinIO), `minio` (built from its pinned source), `minio-init`,
+`greptimedb` (S3 backend) and `oxide`. A separate
 `docker-compose.restore.yml` project restores into isolated volumes and its own
 S3 prefix (`/oxide-restore-verify`).
+
+PG18 keeps the cluster in `/var/lib/postgresql/18/docker` and the volume at
+`/var/lib/postgresql`; `pg1-path` follows it. The upgrade and the migration
+route for an existing PG16 volume (pg_upgrade or dump/restore, plus the
+pgBackRest stanza and repository window) are in
+[ADR 009](decisions/009-postgres-18.md).
 
 ## CI
 

@@ -4,6 +4,19 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **PostgreSQL 16 → 18** (`postgres:18-bookworm`, 18.7). PG18 keeps the cluster
+  in `/var/lib/postgresql/18/docker` with the volume at `/var/lib/postgresql`,
+  so `pg1-path` and both compose files moved with it; bookworm's pgBackRest 2.45
+  cannot read a PG18 cluster, so it comes from PGDG (2.60.1). The migration
+  route for an existing PG16 volume and the pgBackRest repository window are in
+  [ADR 009](docs/decisions/009-postgres-18.md).
+- The restore drill builds the isolated image and restores as the postgres user;
+  without either, it tested a stale image or a root-owned `PGDATA`.
+
 ## [0.2.0] — 2026-11-18
 
 ### Added
