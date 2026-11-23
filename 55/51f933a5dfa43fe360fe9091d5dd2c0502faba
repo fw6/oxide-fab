@@ -1,0 +1,24 @@
+README.md
+  s_a5dcebfbff51de::t_3844a56b19ae5e 352-353
+  s_a5dcebfbff51de::t_3bd4a7b39adcf9 344
+docs/acceptance.md
+  s_a5dcebfbff51de::t_0cb101152e450d 3-7
+docs/acceptance-phase2.md
+  s_a5dcebfbff51de::t_f72b95c510b681 3-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "5551f933a5dfa43fe360fe9091d5dd2c0502faba",
+  "prompts": {},
+  "sessions": {
+    "s_a5dcebfbff51de": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_a9214184-72f7-43ba-a857-b011c698e6d3",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
