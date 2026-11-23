@@ -1,0 +1,15 @@
+# The registry source for this repository.
+#
+# The machine-wide config ($CARGO_HOME/config.toml) replaces crates.io with the
+# corporate Artifactory mirror. That mirror hung while resolving nsh 0.6.1 and
+# is the slowest part of a cold build here, so this repository pins rsproxy.cn
+# instead. A project config is read after the home one, so it wins.
+#
+# Lock files are unaffected: they still record the canonical
+# `registry+https://github.com/rust-lang/crates.io-index` source. This only
+# changes where the index and `.crate` files are fetched from.
+[source.crates-io]
+replace-with = "rsproxy-remote"
+
+[source.rsproxy-remote]
+registry = "sparse+https://rsproxy.cn/index/"

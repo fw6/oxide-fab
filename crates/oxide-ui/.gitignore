@@ -1,0 +1,5 @@
+# nsh generated state: runners' sources, type declarations, build output.
+.nsh/
+
+# Cargo's build directory for this workspace (the app is its own workspace).
+target/

@@ -14,6 +14,7 @@ use std::thread;
 use oxide_render::{Model, RenderError, Renderer, RendererOptions};
 use oxide_scene::{Camera, FabManifest, SceneGraph};
 
+use crate::assets;
 use crate::frames::Frame;
 
 #[derive(Debug)]
@@ -160,9 +161,7 @@ pub fn manifest() -> Option<&'static FabManifest> {
     static MANIFEST: std::sync::OnceLock<Option<FabManifest>> = std::sync::OnceLock::new();
     MANIFEST
         .get_or_init(|| {
-            let manifest =
-                FabManifest::from_json(include_str!("../../../assets/fab/fab-manifest.json"))
-                    .ok()?;
+            let manifest = FabManifest::from_json(assets::MANIFEST).ok()?;
             manifest.validate(&[1, 2, 3, 4]).ok()?;
             Some(manifest)
         })

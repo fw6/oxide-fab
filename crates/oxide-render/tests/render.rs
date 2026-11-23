@@ -10,8 +10,8 @@ use oxide_scene::{
     WaferState, build,
 };
 
-const GLB: &[u8] = include_bytes!("../../../assets/fab/oxide-fab.glb");
-const MANIFEST: &str = include_str!("../../../assets/fab/fab-manifest.json");
+const GLB: &[u8] = include_bytes!("../../../crates/oxide-ui/assets/fab/oxide-fab.glb");
+const MANIFEST: &str = include_str!("../../../crates/oxide-ui/assets/fab/fab-manifest.json");
 
 fn setup() -> (FabManifest, FloorState, AmhsPath, Renderer) {
     let manifest = FabManifest::from_json(MANIFEST).unwrap();

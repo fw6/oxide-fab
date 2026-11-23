@@ -12,5 +12,8 @@ artifacts/*
 .env
 .DS_Store
 
+# Local agent configuration (.zcode/agents, sessions)
+.zcode/
+
 # Desktop packages
 /dist

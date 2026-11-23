@@ -15,14 +15,16 @@ floor, the four process bands, the AMHS ring and two templates (FOUP, wafer),
 then writes:
 
 ```
-assets/fab/oxide-fab.glb
-assets/fab/fab-manifest.json
+crates/oxide-ui/assets/fab/oxide-fab.glb
+crates/oxide-ui/assets/fab/fab-manifest.json
 artifacts/blender/fx-overview.png         (review render, not shipped)
 artifacts/blender/fx-tool-closeup.png
 ```
 
 Blender 5.3 is an **offline** tool. Neither `bpy` nor a `.blend` is in the
-runtime, the packages or CI; the committed GLB and manifest are.
+runtime, the packages or CI; the committed GLB and manifest are. They live
+beside the UI crate that loads them (ADR 010 moved them there from the
+repository root).
 
 ### Naming and the manifest contract
 

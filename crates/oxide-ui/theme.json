@@ -2,8 +2,8 @@
   "cssVars": {
     "theme": {
       "radius": "0.5rem",
-      "font-sans": "WenQuanYi Micro Hei, Noto Sans CJK SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif",
-      "font-mono": "JetBrains Mono, SF Mono, Menlo, WenQuanYi Micro Hei, monospace"
+      "font-sans": "PingFang SC, Noto Sans CJK SC, Source Han Sans SC, Microsoft YaHei, WenQuanYi Micro Hei, sans-serif",
+      "font-mono": "JetBrains Mono, SF Mono, Menlo, PingFang SC, Noto Sans CJK SC, monospace"
     },
     "light": {
       "background": "#f6f7f9",

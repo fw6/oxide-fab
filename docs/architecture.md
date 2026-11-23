@@ -50,12 +50,15 @@ Rules enforced by the manifests:
 - `oxide-render` owns wgpu and the GLB; it consumes `oxide-scene`'s graph and
   returns a frame. It has no windowing code and no domain knowledge.
 - `oxide-ui` is a separate workspace (nsh builds runners from it) and speaks
-  only HTTP. Snapshot DTOs are mirrored on purpose: a UI that shared Rust types
-  with the server would hide a contract drift instead of exposing it at the API
-  boundary. The pure read-model structs (`Analysis`, `WhatIfComparison`,
-  `DispatchDecision`) are the one exception: the derivation itself is the
-  contract, it is shared by the API and the UI, and serde keeps the wire shape
-  in one place.
+  only HTTP. Its interface is TSX: `App.tsx`, `store.ts`, `components/` and
+  `panels/` own the panels, the polling and every interaction, so an edit is a
+  hot update instead of a Rust rebuild. The crate keeps what native code alone
+  can do — the wgpu render thread, the scene/camera module, the `oxide.view3d`
+  native view and the save dialog — and exports it to TSX through
+  `#[native_module("oxide-ui/native")]`. Snapshot DTOs are mirrored on purpose:
+  a UI that shared Rust types with the server would hide a contract drift
+  instead of exposing it at the API boundary. The scene input TSX sends to Rust
+  (`SceneInput`) is a second, narrower boundary, reviewed beside the renderer.
 
 ## The write path (the important one)
 
@@ -146,11 +149,15 @@ the Work-Next panel. What-if runs the same engine on a cloned state.
 ## The 3D workbench
 
 ```
-oxide-ui (nsh, UI thread)
-  ├─ signals: floor, selection, level, camera
-  ├─ builds the SceneGraph every 50 ms (oxide-scene::build)
-  ├─ submits { graph, camera, size } to the render thread
-  └─ native component shows the newest frame
+TSX (App.tsx, store.ts, panels/)
+  ├─ signals: snapshot, selection, level, explosion, theme
+  ├─ every change calls `Viewport.setScene(SceneInput)` (one Rust call)
+  └─ every 50 ms calls `Viewport.tick()` and feeds the frame version to the view
+
+Viewport module (oxide-ui, Rust)
+  ├─ builds the SceneGraph from SceneInput (oxide-scene::build)
+  ├─ owns Camera, picking and framing (scene/size inputs from TSX)
+  └─ submits { graph, camera, size } to the render thread
 
 render thread (oxide-render)
   ├─ glTF meshes (world transforms baked at load)
@@ -167,8 +174,11 @@ native component (per platform)
 Picking uses the same `Camera::view_projection` the renderer draws with and the
 manifest's AABBs; a hit is the same `Entity` the panels and the search use.
 Levels L0–L3 are views of one graph, not separate pages. The native view lets
-the pointer through, so nsh's own mouse/wheel handlers own the input. The
-renderer and its evidence binary share one code path (ADR 006).
+the pointer through, so the TSX element's mouse/wheel handlers own the input;
+Windows forwards its own wheel as the `nativewheel` native event (the view
+`wheel` name stays free for macOS and Linux). The renderer and its evidence
+binary share one code path (ADR 006). Rust state lives behind one process-wide
+slot, so a TSX hot reload keeps the camera and the GPU. The split is ADR 010.
 
 ## Time series model
 

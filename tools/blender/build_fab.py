@@ -1,9 +1,9 @@
 """Build the oxide-fab 3D scene and export it as GLB plus a scene manifest.
 
 This is the only place the geometry is authored. It is an *offline* tool: the
-application loads the committed `assets/fab/oxide-fab.glb` and
-`assets/fab/fab-manifest.json`; neither Blender nor bpy is part of the runtime,
-the packages or CI.
+application loads the committed `crates/oxide-ui/assets/fab/oxide-fab.glb` and
+`crates/oxide-ui/assets/fab/fab-manifest.json`, beside the Rust that renders
+them; neither Blender nor bpy is part of the runtime, the packages or CI.
 
 Run from the repository root:
 
@@ -40,7 +40,7 @@ import bpy
 from mathutils import Vector
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-OUT_DIR = os.path.join(ROOT, "assets", "fab")
+OUT_DIR = os.path.join(ROOT, "crates", "oxide-ui", "assets", "fab")
 GLB_NAME = "oxide-fab.glb"
 MANIFEST_NAME = "fab-manifest.json"
 PREVIEW_DIR = os.path.join("artifacts", "blender")

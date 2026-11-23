@@ -141,8 +141,11 @@ impl NativeComponent for ViewportView {
     }
 
     fn wheel(&mut self, event: &Wheel) -> bool {
+        // A name of its own: `wheel` is also a view event, and TSX gets that
+        // one on the platforms nsh delivers it. Declaring both would make the
+        // native handler take `onWheel` away from macOS and Linux.
         self.context.emit(
-            "wheel",
+            "nativewheel",
             json!({
                 "x": event.x,
                 "y": event.y,

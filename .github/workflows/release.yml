@@ -33,7 +33,7 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NSH_VERSION: v0.5.0
+  NSH_VERSION: v0.6.1
 
 jobs:
   ci:
@@ -181,7 +181,8 @@ jobs:
           sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
             -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
             -o Acquire::Retries=5 install -y --no-install-recommends \
-            libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libgtk-4-dev libwebkitgtk-6.0-dev \
+            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
             libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick
 
       - name: Install nsh (Unix)

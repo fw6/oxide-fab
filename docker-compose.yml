@@ -170,14 +170,14 @@ services:
       DATABASE_URL: postgres://${POSTGRES_USER:-oxide}:${POSTGRES_PASSWORD:?copy .env.example to .env first}@postgres:5432/${POSTGRES_DB:-oxide}
       GREPTIME_URL: http://greptimedb:4000
       GREPTIME_DB: public
-      OXIDE_HTTP_ADDR: 0.0.0.0:8080
+      OXIDE_HTTP_ADDR: 0.0.0.0:18080
       SCENARIO_PATH: /app/config/scenario.json
       SECS_BIND: 127.0.0.1:50010
       RUST_LOG: ${RUST_LOG:-info,oxide=debug}
     ports:
-      - "8080:8080"
+      - "18080:18080"
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:18080/healthz"]
       interval: 3s
       timeout: 3s
       retries: 30

@@ -46,12 +46,12 @@ COPY migrations /app/migrations
 WORKDIR /app
 USER 10001:10001
 
-ENV OXIDE_HTTP_ADDR=0.0.0.0:8080 \
+ENV OXIDE_HTTP_ADDR=0.0.0.0:18080 \
     SCENARIO_PATH=/app/config/scenario.json \
     OXIDE_MIGRATIONS_DIR=/app/migrations \
     GREPTIME_DB=public \
     SECS_BIND=127.0.0.1:50010 \
     RUST_LOG=info,oxide=debug
 
-EXPOSE 8080
+EXPOSE 18080
 ENTRYPOINT ["/oxide"]
