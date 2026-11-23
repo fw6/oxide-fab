@@ -341,7 +341,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - [docs/acceptance-phase2.md](docs/acceptance-phase2.md) — 阶段 2 的 A-01…A-12 与功能清单核对
 - [docs/design/client-features.md](docs/design/client-features.md) — 阶段 2 功能规格（四域映射、数据契约、验收点）
 - [docs/design/visual-proposals.md](docs/design/visual-proposals.md) — 浅色/深色各两套视觉候选与选型
-- [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 纯 Rust 模式与实读证据
+- [ADR 001](docs/decisions/001-ui-toolchain.md) — nsh 选型与实读证据（纯 Rust 部分已被 ADR 010 取代）
 - [ADR 002](docs/decisions/002-secs-choice.md) — SECS/GEM 选型
 - [ADR 003](docs/decisions/003-idempotency.md) — 幂等实现与实测
 - [ADR 004](docs/decisions/004-object-store.md) — 对象存储：MinIO 源码构建的原因与实测
@@ -349,6 +349,8 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - [ADR 006](docs/decisions/006-scene-and-render-host.md) — GLB/manifest 契约、wgpu 离屏渲染与三平台承载
 - [ADR 007](docs/decisions/007-analytics-projections.md) — 只读分析、Q-time、派工与 what-if 口径
 - [ADR 008](docs/decisions/008-visual-direction.md) — 视觉方向与两套主题
+- [ADR 009](docs/decisions/009-postgres-18.md) — PostgreSQL 18 升级与 PITR 迁移路径
+- [ADR 010](docs/decisions/010-tsx-interface.md) — TSX 界面 + Rust 视口：热更新、边界与项目结构
 - [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`artifacts/` 下每次运行都会重写）
 
 ## 许可证

@@ -1,5 +1,10 @@
 # 验收记录（第 13 节 12 项）
 
+> 历史记录：本页是 v0.1.2 发布时的验收快照。界面后来迁到 TSX
+> （[ADR 010](decisions/010-tsx-interface.md)），文中引用的 Rust 测试、
+> `src/panels`、`lib.rs` 与「无 TSX 入口」等描述对应的是当时的结构；
+> 结论仍然成立，路径只作历史凭据。
+
 - **版本**：v0.1.2（tag `v0.1.2`，产物见
   <https://github.com/fw6/oxide-fab/releases/tag/v0.1.2>）
 - **记录时间**：2026-11-17

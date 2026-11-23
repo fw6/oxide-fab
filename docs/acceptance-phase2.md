@@ -1,5 +1,12 @@
 # 阶段 2 验收记录（桌面 wgpu 3D 工作台）
 
+> 历史记录：本页是 0.2.0 阶段 2 的验收快照。界面后来迁到 TSX
+> （[ADR 010](decisions/010-tsx-interface.md)），文中引用的 Rust 测试
+> （`tests/dashboard.rs`）、`panels/*.rs`、`lib.rs`、`src/data.rs` 与
+> 「应用无 TSX 入口」等描述对应的是当时的结构。功能结论未变；
+> 迁移后的测试数量仍是 13 条（8 条界面 + 5 条折叠/时钟），见
+> `crates/oxide-ui/App.test.tsx` 与 `model.test.ts`。
+
 - **版本**：0.2.0（本次工作区，未打 tag）
 - **记录时间**：2026-11-17（2026-11-18 补入 CI 上的 Windows 证据与提速后的 CI 数据）
 - **本机**：macOS / arm64（Darwin 27，Apple M2，Metal）、Docker/OrbStack、nsh 0.5.0
