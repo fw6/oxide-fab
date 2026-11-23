@@ -1,0 +1,45 @@
+README.md
+  s_8d3e3cd69e1af0::t_d29705efaf67b7 355
+  s_8d3e3cd69e1af0::t_f7495147fcdbf5 234,238-241
+Dockerfile
+  s_8d3e3cd69e1af0::t_2e455b22b8364d 25-26,29-32,36
+docker-compose.yml
+  s_8d3e3cd69e1af0::t_9942a936f7365d 177-178,180
+docs/decisions/006-scene-and-render-host.md
+  s_8d3e3cd69e1af0::t_f5e69ac73554cb 79-85
+docs/acceptance-phase2.md
+  s_8d3e3cd69e1af0::t_205058cf76fb50 44
+  s_8d3e3cd69e1af0::t_80a21c1ed0f533 88
+docs/acceptance.md
+  s_8d3e3cd69e1af0::t_033ccd988cb5f2 30
+scripts/linux-container-evidence.sh
+  s_8d3e3cd69e1af0::t_913875a8cfea19 22
+  s_8d3e3cd69e1af0::t_5a6ac6ba3bd6c8 11
+.github/workflows/ci.yml
+  s_8d3e3cd69e1af0::t_1caf5b4c331ca5 170-172
+scripts/chaos.sh
+  s_8d3e3cd69e1af0::t_eb95720d810a8b 4-5,13
+  s_8d3e3cd69e1af0::t_16e65da485ec1f 354
+.github/workflows/release.yml
+  s_8d3e3cd69e1af0::t_936ffc5e111dfa 98-99
+  s_8d3e3cd69e1af0::t_d101c3ab178046 503-507
+  s_8d3e3cd69e1af0::t_410b50711d3e1c 111-112
+docs/architecture.md
+  s_8d3e3cd69e1af0::t_15137a4ee1b55f 155-156,161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "86c088dc5a09c3c4811e38b8d6e767d5fa7a1bc6",
+  "prompts": {},
+  "sessions": {
+    "s_8d3e3cd69e1af0": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_de2c7826-436c-42ee-bd67-59dc3b7c7444",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
