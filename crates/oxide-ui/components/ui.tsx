@@ -15,9 +15,6 @@ export const SMALL = 11.5;
 export const BODY = 12.5;
 export const TITLE = 13.5;
 
-export const FONT =
-  "WenQuanYi Micro Hei, Noto Sans CJK SC, Source Han Sans SC, PingFang SC, Microsoft YaHei, sans-serif";
-
 /** A value, or an accessor that reads the signals it depends on. */
 export type Val<T> = T | (() => T);
 
@@ -133,10 +130,4 @@ export function Bar(props: { ratio: Val<number>; color: Val<string>; width: numb
 
 export function Divider() {
   return <View style={{ width: "100%", height: 1, backgroundColor: p().border }} />;
-}
-
-export function SectionLabel(props: { label: Val<string> }) {
-  return (
-    <Text style={{ fontSize: TINY, fontWeight: "600", color: p().muted }}>{read(props.label)}</Text>
-  );
 }

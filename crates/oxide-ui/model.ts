@@ -618,11 +618,6 @@ export function durationText(ms: number): string {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
-/** A ratio as whole percent. */
-export function percent(ratio: number): string {
-  return `${Math.round(ratio * 100)}%`;
-}
-
 export function stateColor(palette: Palette, state: string): string {
   switch (state) {
     case "completed":
@@ -645,9 +640,9 @@ export function lightColor(palette: Palette, light: string): string {
   return palette.good;
 }
 
-export type DefectClass = "scratch" | "particle" | "resist" | "pattern" | "other";
+type DefectClass = "scratch" | "particle" | "resist" | "pattern" | "other";
 
-export function defectClass(defect: string | null): DefectClass | null {
+function defectClass(defect: string | null): DefectClass | null {
   if (defect === null || defect === "") return null;
   const text = defect.toLowerCase();
   if (text.includes("scratch")) return "scratch";

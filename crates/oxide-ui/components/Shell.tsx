@@ -8,6 +8,7 @@ import {
   dark,
   demo,
   demoRunning,
+  DEMO_LABEL,
   drill,
   eventsTotal,
   explosion,
@@ -41,7 +42,6 @@ import {
   viewport,
 } from "../store";
 import { clockText, entityLabel, lotIdOf, toolIdOf, type Entity, type TabId } from "../model";
-import { DEMO_LABEL } from "../store";
 import { ViewportPane } from "./Viewport";
 import { Button, Dot, Small, Strong, p, SMALL, TINY } from "./ui";
 import { MesPanel } from "../panels/Mes";

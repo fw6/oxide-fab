@@ -266,10 +266,6 @@ async function pullEvents(): Promise<boolean> {
   return true;
 }
 
-export async function refresh(): Promise<void> {
-  await Promise.allSettled([pullEvents(), loadSnapshot(), loadAnalytics(), loadMonitor()]);
-}
-
 // ── Actions ────────────────────────────────────────────────────────────────
 
 async function action(path: string, body: unknown, label: string): Promise<void> {
