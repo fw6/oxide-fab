@@ -161,7 +161,7 @@ jobs:
       - name: nsh check (cargo check and the TSX type check)
         run: nsh check crates/oxide-ui
 
-      - name: nsh test (headless TSX: shell, domains, control bar, demo; JUnit report)
+      - name: "nsh test (headless TSX: shell, domains, control bar, demo; JUnit report)"
         run: |
           mkdir -p artifacts
           nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
