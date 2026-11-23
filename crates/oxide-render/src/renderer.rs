@@ -17,6 +17,10 @@ use crate::gpu::{AdapterReport, Gpu};
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24Plus;
+/// The atlas tiles sit 6 px apart with a 4 px bake margin around each. Four
+/// levels reach 256 px, where a bilinear footprint is 4 px across a tile edge —
+/// exactly the margin, so no level samples the neighbour's tile.
+const MAX_MIP_LEVELS: u32 = 4;
 const MAX_OBJECTS: usize = 1024;
 const OBJECT_ALIGN: u64 = 256;
 const OBJECT_BYTES: u64 = 96;
@@ -90,6 +94,36 @@ impl Frame {
             (sum[1] / pixels as f64 / 255.0) as f32,
             (sum[2] / pixels as f64 / 255.0) as f32,
         ]
+    }
+
+    /// The luminance at `percentile` (0–100) of the frame's pixels, 0..1.
+    ///
+    /// Luminance is Rec. 709 and the histogram is over the 8-bit result, so it
+    /// describes the picture that was written, not the linear render target.
+    /// This is the p90 the render evidence reports against a brightness budget.
+    #[must_use]
+    pub fn luminance_percentile(&self, percentile: f64) -> f32 {
+        let mut bins = [0_u64; 256];
+        let mut pixels = 0_u64;
+        for pixel in self.rgba.as_chunks::<4>().0 {
+            let luminance = 0.2126 * f64::from(pixel[0])
+                + 0.7152 * f64::from(pixel[1])
+                + 0.0722 * f64::from(pixel[2]);
+            bins[luminance.round().clamp(0.0, 255.0) as usize] += 1;
+            pixels += 1;
+        }
+        if pixels == 0 {
+            return 0.0;
+        }
+        let rank = (pixels as f64 * percentile.clamp(0.0, 100.0) / 100.0) as u64;
+        let mut seen = 0_u64;
+        for (value, count) in bins.iter().enumerate() {
+            seen += count;
+            if seen > rank {
+                return value as f32 / 255.0;
+            }
+        }
+        1.0
     }
 }
 
@@ -538,12 +572,13 @@ impl Renderer {
                 model: node.transform.to_cols_array_2d(),
                 color,
                 // z = 1 when the mesh is a textured part, 0 for the solid unit
-                // cube the graph uses for status lights and beacons.
+                // cube the graph uses for status lights and beacons; w = the
+                // theme's dim factor for a dimmed node.
                 params: [
                     node.emissive,
                     if node.dimmed { 1.0 } else { 0.0 },
                     if node.mesh.is_some() { 1.0 } else { 0.0 },
-                    0.0,
+                    graph.dim_factor,
                 ],
             };
             let offset = index as u64 * OBJECT_ALIGN;
@@ -762,11 +797,13 @@ fn upload_texture(
             height,
             depth_or_array_layers: 1,
         },
-        mip_level_count: 1,
+        mip_level_count: mip_levels(width, height),
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format,
-        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::RENDER_ATTACHMENT,
         view_formats: &[],
     });
     gpu.queue.write_texture(
@@ -791,11 +828,179 @@ fn upload_texture(
     texture
 }
 
+/// How many levels an atlas gets: the full chain down to 1 px, capped so a mip
+/// never blends across a tile edge (see `MAX_MIP_LEVELS`).
+fn mip_levels(width: u32, height: u32) -> u32 {
+    (32 - width.max(height).leading_zeros()).clamp(1, MAX_MIP_LEVELS)
+}
+
+/// The GPU pass that fills an uploaded atlas's mip chain.
+///
+/// wgpu has no built-in mip generation: each level is a render pass sampling
+/// the level above through a bilinear sampler, which averages each 2x2 block.
+/// Two pipelines exist because the sRGB base atlas and the linear normal and
+/// ORM atlases need different attachment formats.
+struct MipChain {
+    bind_layout: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
+    srgb: wgpu::RenderPipeline,
+    linear: wgpu::RenderPipeline,
+}
+
+impl MipChain {
+    fn new(gpu: &Gpu) -> Self {
+        let shader = gpu
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("oxide-render mips"),
+                source: wgpu::ShaderSource::Wgsl(include_str!("shaders/mipmap.wgsl").into()),
+            });
+        let bind_layout = gpu
+            .device
+            .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("oxide-render mip layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let layout = gpu
+            .device
+            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("oxide-render mip pipeline layout"),
+                bind_group_layouts: &[Some(&bind_layout)],
+                immediate_size: 0,
+            });
+        let pipeline = |format| {
+            gpu.device
+                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("oxide-render mip"),
+                    layout: Some(&layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vs_mip"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        buffers: &[],
+                    },
+                    primitive: wgpu::PrimitiveState::default(),
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some("fs_mip"),
+                        compilation_options: wgpu::PipelineCompilationOptions::default(),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    multiview_mask: None,
+                    cache: None,
+                })
+        };
+        let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("oxide-render mip sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+            ..Default::default()
+        });
+        Self {
+            bind_layout,
+            sampler,
+            srgb: pipeline(wgpu::TextureFormat::Rgba8UnormSrgb),
+            linear: pipeline(wgpu::TextureFormat::Rgba8Unorm),
+        }
+    }
+
+    /// Fills every level below the base one, which `write_texture` already wrote.
+    fn generate(&self, gpu: &Gpu, texture: &wgpu::Texture) {
+        let levels = texture.mip_level_count();
+        if levels <= 1 {
+            return;
+        }
+        let pipeline = if texture.format() == wgpu::TextureFormat::Rgba8UnormSrgb {
+            &self.srgb
+        } else {
+            &self.linear
+        };
+        let mut encoder = gpu
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("oxide-render mips"),
+            });
+        for level in 1..levels {
+            let single = |base_mip_level| wgpu::TextureViewDescriptor {
+                label: Some("oxide-render mip level"),
+                base_mip_level,
+                mip_level_count: Some(1),
+                dimension: Some(wgpu::TextureViewDimension::D2),
+                ..Default::default()
+            };
+            let source = texture.create_view(&single(level - 1));
+            let target = texture.create_view(&single(level));
+            let bind = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("oxide-render mip bind"),
+                layout: &self.bind_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&source),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("oxide-render mip"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+        gpu.queue.submit([encoder.finish()]);
+    }
+}
+
 fn texture_bind_group(
     gpu: &Gpu,
     layout: &wgpu::BindGroupLayout,
     textures: &crate::glb::Textures,
 ) -> wgpu::BindGroup {
+    let mips = MipChain::new(gpu);
     let base = upload_texture(
         gpu,
         "fab base",
@@ -803,6 +1008,7 @@ fn texture_bind_group(
         wgpu::TextureFormat::Rgba8UnormSrgb,
         [255, 255, 255, 255],
     );
+    mips.generate(gpu, &base);
     let normal = upload_texture(
         gpu,
         "fab normal",
@@ -810,6 +1016,7 @@ fn texture_bind_group(
         wgpu::TextureFormat::Rgba8Unorm,
         [128, 128, 255, 255],
     );
+    mips.generate(gpu, &normal);
     let orm = upload_texture(
         gpu,
         "fab orm",
@@ -817,6 +1024,7 @@ fn texture_bind_group(
         wgpu::TextureFormat::Rgba8Unorm,
         [255, 115, 0, 255],
     );
+    mips.generate(gpu, &orm);
     let base_view = base.create_view(&wgpu::TextureViewDescriptor::default());
     let normal_view = normal.create_view(&wgpu::TextureViewDescriptor::default());
     let orm_view = orm.create_view(&wgpu::TextureViewDescriptor::default());
@@ -827,7 +1035,7 @@ fn texture_bind_group(
         address_mode_w: wgpu::AddressMode::ClampToEdge,
         mag_filter: wgpu::FilterMode::Linear,
         min_filter: wgpu::FilterMode::Linear,
-        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        mipmap_filter: wgpu::MipmapFilterMode::Linear,
         ..Default::default()
     });
     gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -953,5 +1161,18 @@ fn linear(channel: f32) -> f64 {
         channel / 12.92
     } else {
         ((channel + 0.055) / 1.055).powf(2.4)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::mip_levels;
+
+    #[test]
+    fn the_mip_chain_stops_at_the_tile_margin() {
+        assert_eq!(mip_levels(2048, 2048), 4);
+        assert_eq!(mip_levels(512, 256), 4);
+        assert_eq!(mip_levels(2, 1), 2);
+        assert_eq!(mip_levels(1, 1), 1);
     }
 }

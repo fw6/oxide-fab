@@ -185,6 +185,37 @@ pub fn exit_anchor(manifest: &FabManifest) -> Vec3 {
     Vec3::new(manifest.floor.half_x - 2.0, 0.0, 0.0)
 }
 
+/// The tool a lot is loaded on, if any.
+fn on_tool<'a>(floor: &'a FloorState, lot: &LotState) -> Option<&'a str> {
+    floor
+        .tools
+        .iter()
+        .find(|tool| tool.current_lot.as_deref() == Some(lot.id.as_str()))
+        .map(|tool| tool.id.as_str())
+}
+
+/// Whether the lot ended its life: completed, split or merged.
+fn lot_terminal(lot: &LotState) -> bool {
+    matches!(lot.state.as_str(), "completed" | "split" | "merged")
+}
+
+/// Whether `lot`'s FOUP moves with the clock at `now_ms`.
+///
+/// The step-change window is the scene's only clock-driven motion: a lot on a
+/// tool, a finished lot and reduced motion all stand still. `foup_placement`
+/// places the FOUP accordingly, and the viewport's idle check reads the same
+/// predicate, so a frame is never skipped while a FOUP is gliding.
+#[must_use]
+pub fn lot_moving(floor: &FloorState, lot: &LotState, now_ms: i64, reduce_motion: bool) -> bool {
+    if reduce_motion || lot.step_since_ms <= 0 || lot_terminal(lot) {
+        return false;
+    }
+    if !(0..TRANSIT_MS).contains(&(now_ms - lot.step_since_ms)) {
+        return false;
+    }
+    on_tool(floor, lot).is_none()
+}
+
 /// One lot's FOUP placement at `now_ms`.
 ///
 /// - on a tool: at its load port;
@@ -201,18 +232,13 @@ pub fn foup_placement(
     now_ms: i64,
     reduce_motion: bool,
 ) -> FoupPlacement {
-    let on_tool = floor
-        .tools
-        .iter()
-        .find(|tool| tool.current_lot.as_deref() == Some(lot.id.as_str()))
-        .map(|tool| tool.id.clone());
-    if let Some(tool) = on_tool {
+    if let Some(tool) = on_tool(floor, lot) {
         return FoupPlacement {
-            position: load_port(manifest, &tool),
+            position: load_port(manifest, tool),
             yaw: std::f32::consts::PI,
         };
     }
-    if matches!(lot.state.as_str(), "completed" | "split" | "merged") {
+    if lot_terminal(lot) {
         return FoupPlacement {
             position: exit_anchor(manifest),
             yaw: -std::f32::consts::FRAC_PI_2,
@@ -224,9 +250,8 @@ pub fn foup_placement(
         .position(|queued| queued.id == lot.id)
         .unwrap_or(0);
     let anchor = queue_anchor(manifest, lot.current_step, index);
-    let elapsed = now_ms - lot.step_since_ms;
-    let in_transit = !reduce_motion && lot.step_since_ms > 0 && (0..TRANSIT_MS).contains(&elapsed);
-    if in_transit {
+    if lot_moving(floor, lot, now_ms, reduce_motion) {
+        let elapsed = now_ms - lot.step_since_ms;
         let t = (elapsed as f32 / TRANSIT_MS as f32).clamp(0.0, 1.0);
         let from = lot.current_step.saturating_sub(1).max(1);
         let ring = path.between(from, lot.current_step, t);
@@ -349,5 +374,29 @@ mod tests {
         };
         let placement = foup_placement(&manifest, &path, &floor, &lot, 10_200, true);
         assert_eq!(placement.position.y, 0.0);
+    }
+
+    #[test]
+    fn a_lot_moves_only_inside_the_transit_window_and_off_a_tool() {
+        let mut lot = queued_lot("LOT-1", 3);
+        lot.step_since_ms = 10_000;
+        let floor = FloorState {
+            lots: vec![lot.clone()],
+            ..FloorState::default()
+        };
+        assert!(lot_moving(&floor, &lot, 10_200, false));
+        assert!(!lot_moving(&floor, &lot, 10_000 + TRANSIT_MS, false));
+        assert!(!lot_moving(&floor, &lot, 10_200, true));
+
+        let on_tool = FloorState {
+            tools: vec![crate::state::ToolState {
+                id: "CLN-01".to_owned(),
+                current_lot: Some("LOT-1".to_owned()),
+                ..crate::state::ToolState::default()
+            }],
+            lots: vec![lot.clone()],
+            ..FloorState::default()
+        };
+        assert!(!lot_moving(&on_tool, &lot, 10_200, false));
     }
 }

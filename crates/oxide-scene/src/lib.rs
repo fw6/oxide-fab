@@ -21,6 +21,6 @@ pub use graph::{
     Entity, Level, SceneGraph, SceneLine, SceneNode, SceneOptions, SceneTheme, Shape, build,
     defect_class,
 };
-pub use layout::{AmhsPath, FoupPlacement, TRANSIT_MS, foup_placement};
+pub use layout::{AmhsPath, FoupPlacement, TRANSIT_MS, foup_placement, lot_moving};
 pub use manifest::{Aabb, BandSpec, FabManifest, ManifestError, PartSpec, StaticSpec, ToolSpec};
 pub use state::{FloorState, LotState, StepState, ToolState, WaferState};

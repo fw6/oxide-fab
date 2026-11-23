@@ -359,15 +359,6 @@ impl FabManifest {
     }
 
     #[must_use]
-    pub fn foup_body(&self) -> &TemplatePart {
-        self.templates
-            .foup
-            .iter()
-            .find(|part| part.role == "body")
-            .expect("validate() rejects a FOUP template without a body")
-    }
-
-    #[must_use]
     pub fn wafer_body(&self) -> &TemplatePart {
         &self.templates.wafer[0]
     }

@@ -170,6 +170,8 @@ pub struct SceneGraph {
     pub lines: Vec<SceneLine>,
     pub background: [f32; 4],
     pub grid: [f32; 4],
+    /// How far a dimmed node is darkened; comes from the theme.
+    pub dim_factor: f32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -203,6 +205,7 @@ pub fn build(
         lines: Vec::new(),
         background: options.theme.background,
         grid: options.theme.grid,
+        dim_factor: options.theme.dim_factor,
     };
     // A light theme needs a lighter floor: the GLB's materials are tuned for
     // the dark room, and the same tint multiplier works for both.

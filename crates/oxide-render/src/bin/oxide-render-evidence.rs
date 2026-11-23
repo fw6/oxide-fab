@@ -147,6 +147,78 @@ fn parse_args() -> Options {
     options
 }
 
+/// The asset budget: the guard against the committed GLB quietly growing.
+const MAX_GLB_BYTES: usize = 16 * 1024 * 1024;
+const MAX_TRIANGLES: usize = 150_000;
+const ATLAS_SIDE: u32 = 2048;
+
+/// Every asset budget overrun, in one error.
+#[derive(Debug)]
+struct BudgetError(Vec<String>);
+
+impl std::fmt::Display for BudgetError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(formatter, "asset budget exceeded: {}", self.0.join("; "))
+    }
+}
+
+impl std::error::Error for BudgetError {}
+
+/// Checks and prints the asset budget; `Err` lists every overrun.
+fn check_budgets(
+    manifest: &FabManifest,
+    model: &Model,
+    glb_bytes: usize,
+) -> Result<(), BudgetError> {
+    let nodes = manifest.expected_nodes().len();
+    let meshes = model.mesh_count();
+    let triangles = model.triangle_count();
+    let textures = model.textures();
+    let atlases = [&textures.base, &textures.normal, &textures.orm];
+    let sizes: Vec<String> = atlases
+        .iter()
+        .map(|image| {
+            image.as_ref().map_or_else(
+                || "missing".to_owned(),
+                |image| format!("{}x{}", image.width, image.height),
+            )
+        })
+        .collect();
+    println!(
+        "budgets: GLB {:.1} MiB (max {} MiB), {nodes} manifest nodes = {meshes} meshes, \
+         {triangles} triangles (max {MAX_TRIANGLES}), atlases {}",
+        glb_bytes as f64 / (1024.0 * 1024.0),
+        MAX_GLB_BYTES / (1024 * 1024),
+        sizes.join(", ")
+    );
+
+    let mut over = Vec::new();
+    if glb_bytes > MAX_GLB_BYTES {
+        over.push(format!("GLB is {glb_bytes} bytes, over {MAX_GLB_BYTES}"));
+    }
+    if nodes != meshes {
+        over.push(format!("{nodes} manifest nodes but {meshes} GLB meshes"));
+    }
+    if triangles > MAX_TRIANGLES {
+        over.push(format!("{triangles} triangles, over {MAX_TRIANGLES}"));
+    }
+    let atlases_ok = atlases.iter().all(|image| {
+        image
+            .as_ref()
+            .is_some_and(|image| image.width == ATLAS_SIDE && image.height == ATLAS_SIDE)
+    });
+    if !atlases_ok {
+        over.push(format!(
+            "textures must be three {ATLAS_SIDE}x{ATLAS_SIDE} atlases"
+        ));
+    }
+    if over.is_empty() {
+        Ok(())
+    } else {
+        Err(BudgetError(over))
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "the evidence run: four levels, the ortho shot and the report in one linear script"
@@ -164,11 +236,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let floor = fixture(&manifest);
 
     if options.validate_only {
+        check_budgets(&manifest, &model, bytes.len())?;
         println!(
-            "assets ok: {} manifest nodes, {} GLB meshes, {} vertices, {} tools, {} bands",
+            "assets ok: {} manifest nodes, {} GLB meshes, {} vertices, {} triangles, {} tools, {} bands",
             manifest.expected_nodes().len(),
             model.mesh_count(),
             model.vertex_count(),
+            model.triangle_count(),
             manifest.tools.len(),
             manifest.bands.len()
         );
@@ -249,15 +323,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let file = options.out.join(format!("{name}.png"));
         frame.to_png(&file)?;
         let bytes = std::fs::metadata(&file)?.len();
+        let mean = frame.mean_rgb();
+        let p90 = frame.luminance_percentile(90.0);
         println!(
-            "{name}: {}x{} → {} ({} bytes, {} ms, {} nodes, {} lines)",
+            "{name}: {}x{} → {} ({} bytes, {} ms, {} nodes, {} lines, mean {:.3}/{:.3}/{:.3}, p90 {:.3})",
             frame.width,
             frame.height,
             file.display(),
             bytes,
             elapsed_ms,
             graph.nodes.len(),
-            graph.lines.len()
+            graph.lines.len(),
+            mean[0],
+            mean[1],
+            mean[2],
+            p90
         );
         shots.push(serde_json::json!({
             "name": name,
@@ -270,7 +350,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "file": file.display().to_string(),
             "bytes": bytes,
             "render_ms": elapsed_ms,
-            "mean_rgb": frame.mean_rgb(),
+            "mean_rgb": mean,
+            "p90_luminance": p90,
         }));
     }
 
@@ -291,12 +372,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let frame = renderer.render(&graph, &ortho_camera)?;
     let file = options.out.join("l0-factory-ortho.png");
     frame.to_png(&file)?;
+    let mean = frame.mean_rgb();
+    let p90 = frame.luminance_percentile(90.0);
     println!(
-        "l0-factory-ortho: {}x{} → {} ({} bytes)",
+        "l0-factory-ortho: {}x{} → {} ({} bytes, mean {:.3}/{:.3}/{:.3}, p90 {:.3})",
         frame.width,
         frame.height,
         file.display(),
-        std::fs::metadata(&file)?.len()
+        std::fs::metadata(&file)?.len(),
+        mean[0],
+        mean[1],
+        mean[2],
+        p90
     );
     shots.push(serde_json::json!({
         "name": "l0-factory-ortho",
@@ -309,7 +396,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "file": file.display().to_string(),
         "bytes": std::fs::metadata(&file)?.len(),
         "render_ms": 0,
-        "mean_rgb": frame.mean_rgb(),
+        "mean_rgb": mean,
+        "p90_luminance": p90,
     }));
 
     // The queue positions the fixture produced, for the report: the same

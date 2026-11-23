@@ -49,7 +49,6 @@ pub struct Textures {
 #[derive(Debug, Clone, Default)]
 pub struct Model {
     meshes: BTreeMap<String, Mesh>,
-    nodes: Vec<String>,
     textures: Textures,
 }
 
@@ -104,9 +103,6 @@ impl Model {
         let name = node.name().unwrap_or("").to_owned();
         let local = Mat4::from_cols_array_2d(&node.transform().matrix());
         let world = parent * local;
-        if !name.is_empty() {
-            self.nodes.push(name.clone());
-        }
         if let Some(mesh) = node.mesh() {
             let mut combined = Mesh {
                 vertices: Vec::new(),
@@ -179,11 +175,6 @@ impl Model {
     }
 
     #[must_use]
-    pub fn node_names(&self) -> &[String] {
-        &self.nodes
-    }
-
-    #[must_use]
     pub fn mesh_count(&self) -> usize {
         self.meshes.len()
     }
@@ -191,6 +182,15 @@ impl Model {
     #[must_use]
     pub fn vertex_count(&self) -> usize {
         self.meshes.values().map(|mesh| mesh.vertices.len()).sum()
+    }
+
+    /// The drawn triangles: every index triple in every mesh.
+    #[must_use]
+    pub fn triangle_count(&self) -> usize {
+        self.meshes
+            .values()
+            .map(|mesh| mesh.indices.len() / 3)
+            .sum()
     }
 
     /// Every node the manifest names must have geometry in the GLB.

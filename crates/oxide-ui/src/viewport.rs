@@ -24,6 +24,64 @@ struct Shared {
     scene: Option<SceneInput>,
     camera: Camera,
     size: (f64, f64),
+    /// The last state handed to the render thread, for idle ticks.
+    last: Option<LastFrame>,
+}
+
+/// The state the last frame was drawn from.
+///
+/// The view renders on demand: a tick submits only when one of these differs
+/// from the last accepted frame, or when a gliding FOUP's clock advances.
+struct LastFrame {
+    scene: SceneInput,
+    camera: Camera,
+    width: u32,
+    height: u32,
+    /// Whether a FOUP was gliding, so the frame that settles it is drawn too.
+    animating: bool,
+}
+
+impl LastFrame {
+    /// Whether the next frame must be drawn.
+    ///
+    /// A clock tick only changes the picture while a FOUP is in transit; any
+    /// other difference — scene, camera, device-pixel size — always does.
+    fn needs_frame(
+        &self,
+        scene: &SceneInput,
+        camera: &Camera,
+        width: u32,
+        height: u32,
+        animating: bool,
+    ) -> bool {
+        if self.width != width
+            || self.height != height
+            || self.camera != *camera
+            || !self.scene.same_view(scene)
+        {
+            return true;
+        }
+        // `self.animating` keeps the settle frame: the clock moved past the
+        // window, the FOUP stops, and that last position must be drawn.
+        (animating || self.animating) && self.scene.now_ms != scene.now_ms
+    }
+}
+
+/// The offscreen size for a view `width` × `height` points.
+///
+/// One scale for both axes keeps the picture's aspect: the native views stretch
+/// the frame into the element box, so per-axis clamps would distort it and put
+/// picking on a different projection from the one drawn. The scale is capped at
+/// two device pixels per point and by a 1.6-megapixel readback budget
+/// (1600×1000), which also keeps both sides inside the renderer's `max_side`.
+fn pixel_size(width: f64, height: f64) -> (u32, u32) {
+    let area = (width * height).max(1.0);
+    let longest = width.max(height).max(1.0);
+    let scale = (1_600_000.0 / area).sqrt().min(1600.0 / longest).min(2.0);
+    (
+        (width * scale).round().max(1.0) as u32,
+        (height * scale).round().max(1.0) as u32,
+    )
 }
 
 static SHARED: Mutex<Option<Shared>> = Mutex::new(None);
@@ -72,6 +130,8 @@ impl Viewport {
     ///
     /// TSX calls this about every 50 ms and feeds the result to the element's
     /// `frame` prop, which is what makes the native view blit a new frame.
+    /// A tick with nothing new to draw submits nothing: an idle view costs no
+    /// GPU render and no readback, and a moving FOUP keeps the frame rate.
     #[must_use]
     pub fn tick() -> u64 {
         with(|shared| {
@@ -85,14 +145,28 @@ impl Viewport {
             let Some(scene) = &shared.scene else {
                 return engine.finished();
             };
+            // Two device pixels per point at most, capped by the readback
+            // budget; both axes share the scale so the view keeps its aspect.
+            let (pixel_width, pixel_height) = pixel_size(width, height);
+            let animating = scene.animating();
+            let dirty = shared.last.as_ref().is_none_or(|last| {
+                last.needs_frame(scene, &shared.camera, pixel_width, pixel_height, animating)
+            });
+            if !dirty {
+                return engine.finished();
+            }
             let Some(graph) = scene::graph(scene) else {
                 return engine.finished();
             };
-            // Two device pixels per point, capped: crisp on Retina without
-            // letting a 4K window turn every frame into a 30 MB readback.
-            let pixel_width = (width * 2.0).clamp(320.0, 1600.0) as u32;
-            let pixel_height = (height * 2.0).clamp(200.0, 1000.0) as u32;
-            engine.submit(graph, shared.camera, pixel_width, pixel_height);
+            if engine.submit(graph, shared.camera, pixel_width, pixel_height) {
+                shared.last = Some(LastFrame {
+                    scene: scene.clone(),
+                    camera: shared.camera,
+                    width: pixel_width,
+                    height: pixel_height,
+                    animating,
+                });
+            }
             engine.finished()
         })
     }
@@ -177,9 +251,17 @@ impl Viewport {
                 (2.0 * x / width - 1.0) as f32,
                 (1.0 - 2.0 * y / height) as f32,
             );
-            let ray = shared.camera.ray(ndc, (width / height) as f32);
+            // The ray must use the aspect the frame was drawn with, not the
+            // element's: the image is stretched into the box by the native view.
+            let (pixel_width, pixel_height) = pixel_size(width, height);
+            let ray = shared
+                .camera
+                .ray(ndc, pixel_width as f32 / pixel_height as f32);
+            // The manifest owns the pick padding; a bare 0.08 here would make
+            // editing it a no-op.
+            let padding = crate::engine::manifest().map_or(0.08, |manifest| manifest.pick_padding);
             graph
-                .pick(&ray, 0.08)
+                .pick(&ray, padding)
                 .map(|hit| EntityInput::from_entity(&hit.entity))
         })
     }
@@ -246,6 +328,7 @@ fn open() -> Shared {
             scene: None,
             camera: Camera::default(),
             size: (0.0, 0.0),
+            last: None,
         };
     }
     let (sink, slot) = SLOT.get_or_init(frames::create);
@@ -257,5 +340,90 @@ fn open() -> Shared {
         scene: None,
         camera: Camera::default(),
         size: (0.0, 0.0),
+        last: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene::LevelInput;
+
+    fn scene(now_ms: i64) -> SceneInput {
+        SceneInput {
+            now_ms,
+            running: true,
+            speed: 10.0,
+            steps: Vec::new(),
+            tools: Vec::new(),
+            lots: Vec::new(),
+            level: LevelInput::Factory,
+            focus: None,
+            selected: None,
+            explosion: 0.0,
+            reduce_motion: false,
+            alert: false,
+            dark: true,
+        }
+    }
+
+    fn last_frame(scene: SceneInput) -> LastFrame {
+        LastFrame {
+            scene,
+            camera: Camera::default(),
+            width: 800,
+            height: 600,
+            animating: false,
+        }
+    }
+
+    #[test]
+    fn a_clock_tick_with_nothing_in_transit_needs_no_frame() {
+        let last = last_frame(scene(1_000));
+        assert!(!last.needs_frame(&scene(1_700), &Camera::default(), 800, 600, false));
+    }
+
+    #[test]
+    fn camera_size_and_scene_each_need_a_frame() {
+        let last = last_frame(scene(1_000));
+        let camera = Camera::default();
+        let mut turned = camera;
+        turned.yaw += 0.1;
+        assert!(last.needs_frame(&scene(1_000), &turned, 800, 600, false));
+        assert!(last.needs_frame(&scene(1_000), &camera, 801, 600, false));
+        let mut stopped = scene(1_000);
+        stopped.running = false;
+        assert!(last.needs_frame(&stopped, &camera, 800, 600, false));
+    }
+
+    #[test]
+    fn a_gliding_foup_is_drawn_when_the_clock_moves() {
+        let last = last_frame(scene(1_000));
+        assert!(last.needs_frame(&scene(1_100), &Camera::default(), 800, 600, true));
+        // The same clock is the same picture: an idle tick must not re-render.
+        assert!(!last.needs_frame(&scene(1_000), &Camera::default(), 800, 600, true));
+    }
+
+    #[test]
+    fn the_frame_that_settles_a_moving_foup_is_drawn() {
+        let mut last = last_frame(scene(1_000));
+        last.animating = true;
+        assert!(last.needs_frame(&scene(1_700), &Camera::default(), 800, 600, false));
+    }
+
+    #[test]
+    fn the_offscreen_size_keeps_the_view_aspect_and_the_budget() {
+        for (width, height) in [(800.0, 840.0), (600.0, 700.0), (1400.0, 900.0)] {
+            let (pixel_width, pixel_height) = pixel_size(width, height);
+            let aspect = f64::from(pixel_width) / f64::from(pixel_height);
+            assert!(
+                (aspect - width / height).abs() < 0.01,
+                "{width}x{height} draws at {pixel_width}x{pixel_height}"
+            );
+            assert!(u64::from(pixel_width) * u64::from(pixel_height) <= 1_700_000);
+            assert!(pixel_width <= 1600 && pixel_height <= 1600);
+        }
+        // Two device pixels per point at most.
+        assert_eq!(pixel_size(300.0, 200.0), (600, 400));
     }
 }

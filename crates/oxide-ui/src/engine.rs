@@ -1,10 +1,10 @@
 //! The render thread: wgpu lives here, the UI thread never blocks on a GPU
 //! readback.
 //!
-//! The UI submits a scene graph and a camera at its own pace; the thread keeps
-//! the newest job, renders it, and publishes the frame into the slot the native
-//! view reads. Dropping a job when the thread is busy is a skipped frame, never
-//! a stall.
+//! The UI submits a scene graph and a camera at its own pace. The channel holds
+//! one job: while the thread is on it a new job is refused, and the viewport
+//! submits its newest state again on the next tick. A dropped job is a skipped
+//! frame, never a stall.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{SyncSender, sync_channel};
@@ -29,7 +29,9 @@ struct Job {
 #[derive(Debug, Clone)]
 pub struct RenderEngine {
     tx: SyncSender<Job>,
-    submitted: Arc<AtomicU64>,
+    /// The version the next job carries. The slot's version is how the view
+    /// notices a new frame, so the number must grow with every job sent.
+    next_version: Arc<AtomicU64>,
     finished: Arc<AtomicU64>,
     adapter: Arc<Mutex<String>>,
     error: Arc<Mutex<Option<String>>>,
@@ -41,7 +43,7 @@ impl RenderEngine {
     #[must_use]
     pub fn start(glb: &'static [u8], slot: Arc<Mutex<Frame>>) -> Self {
         let (tx, rx) = sync_channel::<Job>(1);
-        let submitted = Arc::new(AtomicU64::new(0));
+        let next_version = Arc::new(AtomicU64::new(0));
         let finished = Arc::new(AtomicU64::new(0));
         let adapter = Arc::new(Mutex::new("正在打开 GPU…".to_owned()));
         let error = Arc::new(Mutex::new(None));
@@ -104,16 +106,20 @@ impl RenderEngine {
         }
         Self {
             tx,
-            submitted,
+            next_version,
             finished,
             adapter,
             error,
         }
     }
 
-    /// Ask for a frame. A busy thread drops this one and keeps the newer.
-    pub fn submit(&self, graph: SceneGraph, camera: Camera, width: u32, height: u32) {
-        let version = self.submitted.fetch_add(1, Ordering::Relaxed) + 1;
+    /// Ask for a frame; reports whether the thread took the job.
+    ///
+    /// The channel holds one job. While the thread is busy on it a new job is
+    /// refused, and the caller submits its newest state on the next tick.
+    #[must_use]
+    pub fn submit(&self, graph: SceneGraph, camera: Camera, width: u32, height: u32) -> bool {
+        let version = self.next_version.fetch_add(1, Ordering::Relaxed) + 1;
         let job = Job {
             graph,
             camera,
@@ -121,9 +127,9 @@ impl RenderEngine {
             height,
             version,
         };
-        // A full channel is a skipped frame; disconnected means the render
-        // thread stopped, and `error` already says why.
-        let _ = self.tx.try_send(job);
+        // A disconnected channel means the render thread stopped, and `error`
+        // already says why.
+        self.tx.try_send(job).is_ok()
     }
 
     #[must_use]

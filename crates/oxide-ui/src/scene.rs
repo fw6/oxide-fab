@@ -8,7 +8,7 @@
 use nsh_core::prelude::*;
 use oxide_scene::{
     AmhsPath, Camera, Entity, FloorState, Level, LotState, SceneGraph, SceneOptions, StepState,
-    ToolState, WaferState, build,
+    ToolState, WaferState, build, lot_moving,
 };
 
 use crate::engine::manifest;
@@ -61,7 +61,7 @@ pub enum EntityKind {
 }
 
 /// A scene entity, as TSX names it and a pick returns it.
-#[derive(Debug, Clone, Default, JsObject)]
+#[derive(Debug, Clone, Default, PartialEq, JsObject)]
 pub struct EntityInput {
     /// Which kind this is; the other fields are read by kind.
     pub kind: EntityKind,
@@ -153,7 +153,7 @@ impl EntityInput {
 }
 
 /// One route step, as the panels and the scene use it.
-#[derive(Debug, Clone, JsObject)]
+#[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct StepInput {
     /// The step number.
     pub step_no: i32,
@@ -172,7 +172,7 @@ pub struct StepInput {
 }
 
 /// One tool.
-#[derive(Debug, Clone, JsObject)]
+#[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct ToolInput {
     /// The equipment id.
     pub id: String,
@@ -191,7 +191,7 @@ pub struct ToolInput {
 }
 
 /// One wafer.
-#[derive(Debug, Clone, JsObject)]
+#[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct WaferInput {
     /// The wafer id.
     pub id: String,
@@ -206,7 +206,7 @@ pub struct WaferInput {
 }
 
 /// One lot.
-#[derive(Debug, Clone, JsObject)]
+#[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct LotInput {
     /// The lot id.
     pub id: String,
@@ -233,7 +233,7 @@ pub struct LotInput {
     clippy::struct_excessive_bools,
     reason = "independent scene inputs: running, reduce_motion, alert and dark are not one state"
 )]
-#[derive(Debug, Clone, JsObject)]
+#[derive(Debug, Clone, PartialEq, JsObject)]
 pub struct SceneInput {
     /// The simulation clock.
     pub now_ms: i64,
@@ -264,6 +264,71 @@ pub struct SceneInput {
 }
 
 impl SceneInput {
+    /// Whether the clock alone can change the picture: a FOUP on the rail.
+    ///
+    /// The view keeps rendering while this is true and idles otherwise. The
+    /// same predicate is why [`Self::same_view`] may ignore `now_ms`.
+    #[must_use]
+    pub fn animating(&self) -> bool {
+        let floor = self.floor();
+        floor
+            .lots
+            .iter()
+            .any(|lot| lot_moving(&floor, lot, self.now_ms, self.reduce_motion))
+    }
+
+    /// The same picture: every field but the sim clock, which `animating`
+    /// covers. A clock tick with nothing in transit must not force a frame.
+    ///
+    /// Destructured field by field so a new field is a compile error here
+    /// instead of a frame that silently stops updating.
+    #[must_use]
+    pub fn same_view(&self, other: &Self) -> bool {
+        let Self {
+            now_ms: _,
+            running,
+            speed,
+            steps,
+            tools,
+            lots,
+            level,
+            focus,
+            selected,
+            explosion,
+            reduce_motion,
+            alert,
+            dark,
+        } = self;
+        let Self {
+            now_ms: _,
+            running: other_running,
+            speed: other_speed,
+            steps: other_steps,
+            tools: other_tools,
+            lots: other_lots,
+            level: other_level,
+            focus: other_focus,
+            selected: other_selected,
+            explosion: other_explosion,
+            reduce_motion: other_reduce_motion,
+            alert: other_alert,
+            dark: other_dark,
+        } = other;
+        running == other_running
+            // Bit equality, not an epsilon: any change at all redraws.
+            && speed.to_bits() == other_speed.to_bits()
+            && steps == other_steps
+            && tools == other_tools
+            && lots == other_lots
+            && level == other_level
+            && focus == other_focus
+            && selected == other_selected
+            && explosion.to_bits() == other_explosion.to_bits()
+            && reduce_motion == other_reduce_motion
+            && alert == other_alert
+            && dark == other_dark
+    }
+
     fn floor(&self) -> FloorState {
         FloorState {
             now_ms: self.now_ms,

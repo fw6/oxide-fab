@@ -28,6 +28,7 @@ import {
   type ToolView,
   type WhatIfComparison,
   entityLabel,
+  liveNow,
   lotIdOf,
   noteSteps,
   toEntityInput,
@@ -173,6 +174,14 @@ export function latestLot(): LotView | null {
 
 // ── Loaders ────────────────────────────────────────────────────────────────
 
+/** The last snapshot's clock, so the view and the header move between polls. */
+let clock = { simMs: 0, wallMs: 0, speed: 10, running: false };
+
+function advanceClock(): void {
+  if (!clock.running) return;
+  nowMs.set(liveNow(clock.simMs, clock.wallMs, clock.speed, Date.now()));
+}
+
 export async function loadSnapshot(): Promise<void> {
   const snapshot = await getJson<Snapshot>("/api/snapshot");
   const previous = lots();
@@ -195,6 +204,12 @@ export async function loadSnapshot(): Promise<void> {
   nowMs.set(snapshot.sim.now_ms);
   running.set(snapshot.sim.running);
   speed.set(snapshot.sim.speed);
+  clock = {
+    simMs: snapshot.sim.now_ms,
+    wallMs: Date.now(),
+    speed: snapshot.sim.speed,
+    running: snapshot.sim.running,
+  };
   lastSeq.set(snapshot.last_seq);
   greptimeOk.set(snapshot.greptime_ok);
   connected.set(true);
@@ -243,27 +258,37 @@ export async function loadTrace(eventId: string): Promise<void> {
 }
 
 /** One event page; `false` means the fold needs a fresh snapshot. */
+let eventsInFlight = false;
+
 async function pullEvents(): Promise<boolean> {
-  const page = await getJson<EventsResponse>(`/api/events?since=${lastSeq()}&limit=500`);
-  lastSeq.set(page.last_seq);
-  if (page.events.length === 0) return true;
-  const nextLots = lots().map((lot) => ({ ...lot, wafers: lot.wafers.map((wafer) => ({ ...wafer })) }));
-  const nextTools = tools().map((tool) => ({ ...tool }));
-  let folded = true;
-  for (const entry of page.events) {
-    if (!applyEvent(nextLots, nextTools, entry.event)) {
-      folded = false;
-      break;
+  // A slow page and the next poll must not fold the same events twice.
+  if (eventsInFlight) return true;
+  eventsInFlight = true;
+  try {
+    const page = await getJson<EventsResponse>(`/api/events?since=${lastSeq()}&limit=500`);
+    // A snapshot that resolved late must not move the log position backwards.
+    lastSeq.set(Math.max(lastSeq(), page.last_seq));
+    if (page.events.length === 0) return true;
+    const nextLots = lots().map((lot) => ({ ...lot, wafers: lot.wafers.map((wafer) => ({ ...wafer })) }));
+    const nextTools = tools().map((tool) => ({ ...tool }));
+    let folded = true;
+    for (const entry of page.events) {
+      if (!applyEvent(nextLots, nextTools, entry.event)) {
+        folded = false;
+        break;
+      }
     }
+    if (!folded) return false;
+    const last = page.events.at(-1);
+    const at = last === undefined ? nowMs() : last.event.occurred_at_ms;
+    const noted = noteSteps(stepSince(), lots(), nextLots, at);
+    if (noted.changed) stepSince.set(noted.steps);
+    lots.set(nextLots);
+    tools.set(nextTools);
+    return true;
+  } finally {
+    eventsInFlight = false;
   }
-  if (!folded) return false;
-  const last = page.events.at(-1);
-  const at = last === undefined ? nowMs() : last.event.occurred_at_ms;
-  const noted = noteSteps(stepSince(), lots(), nextLots, at);
-  if (noted.changed) stepSince.set(noted.steps);
-  lots.set(nextLots);
-  tools.set(nextTools);
-  return true;
 }
 
 // ── Actions ────────────────────────────────────────────────────────────────
@@ -675,6 +700,10 @@ export function bootstrap(): () => void {
     setTimeout(() => startDemo(), 800);
   }
   let ticks = 0;
+  // The snapshot clock is extended locally so the FOUP transit and the header
+  // clock move between polls; every snapshot resets it to the server's time.
+  // It ticks with the render loop (50 ms), so a slow transit animates smoothly.
+  const clockId = setInterval(advanceClock, 50);
   const id = setInterval(() => {
     void (async () => {
       try {
@@ -694,5 +723,8 @@ export function bootstrap(): () => void {
       void loadMonitor().catch(() => undefined);
     }
   }, 700);
-  return () => clearInterval(id);
+  return () => {
+    clearInterval(clockId);
+    clearInterval(id);
+  };
 }

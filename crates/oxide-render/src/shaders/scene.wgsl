@@ -15,7 +15,8 @@ struct Camera {
 struct Object {
     model: mat4x4<f32>,
     color: vec4<f32>,
-    // x: emissive (0 lit, 1 self-lit), y: dimmed (0..1), z: textured (0/1), w: unused
+    // x: emissive (0 lit, 1 self-lit), y: dimmed (0/1), z: textured (0/1),
+    // w: how far a dimmed node is darkened (the theme's factor)
     params: vec4<f32>,
 };
 
@@ -55,6 +56,15 @@ fn srgb_to_linear(color: vec3<f32>) -> vec3<f32> {
     let low = color / 12.92;
     let high = pow((color + 0.055) / 1.055, vec3<f32>(2.4));
     return select(low, high, color > vec3<f32>(0.04045));
+}
+
+// The ambient environment: a cool ceiling and the warm-dark floor bounce,
+// scaled by `camera.ambient.x` so the dark "Cleanroom Night" theme stays dark.
+const SKY: vec3<f32> = vec3<f32>(0.90, 0.97, 1.10);
+const GROUND: vec3<f32> = vec3<f32>(0.38, 0.34, 0.30);
+
+fn hemisphere(direction: vec3<f32>) -> vec3<f32> {
+    return mix(GROUND, SKY, direction.y * 0.5 + 0.5);
 }
 
 // Tangent frame from screen-space derivatives: the mesh carries no tangents,
@@ -99,17 +109,30 @@ fn fs_main(input: VsOut) -> @location(0) vec4<f32> {
     let light = normalize(camera.light.xyz);
     let view = normalize(camera.eye.xyz - input.world_position);
     let base = srgb_to_linear(object.color.rgb) * base_sample;
+    let n_dot_v = max(dot(normal, view), 0.0);
     let diffuse = max(dot(normal, light), 0.0) * 0.92;
     let half_vector = normalize(light + view);
     let shininess = mix(64.0, 8.0, roughness);
     let specular = pow(max(dot(normal, half_vector), 0.0), shininess)
         * mix(0.10, 0.55, metallic)
         * (1.0 - 0.5 * roughness);
-    let rim = pow(1.0 - max(dot(normal, view), 0.0), 3.0) * 0.18;
-    let ambient = camera.ambient.x * occlusion;
-    let lit = base * (ambient + diffuse) + mix(vec3<f32>(1.0), base, 0.5) * (specular + rim);
+    let rim = pow(1.0 - n_dot_v, 3.0) * 0.18;
+    let ambient_scale = camera.ambient.x * occlusion;
+    let ambient = hemisphere(normal) * ambient_scale;
+    // Metals show their surroundings: F0 is the base colour for a metal and 4%
+    // for a dielectric, and Schlick lifts it toward 1 at grazing angles. Without
+    // it a metallic part away from the key light has no light of its own and
+    // reads black.
+    let f0 = mix(vec3<f32>(0.04), base, metallic);
+    let fresnel = f0 + (vec3<f32>(1.0) - f0) * pow(1.0 - n_dot_v, 5.0);
+    let reflected = reflect(-view, normal);
+    let environment = hemisphere(reflected) * ambient_scale
+        * fresnel * (1.0 - roughness * 0.6);
+    let lit = base * (ambient + diffuse)
+        + environment
+        + mix(vec3<f32>(1.0), base, 0.5) * (specular + rim);
     let emissive = clamp(object.params.x, 0.0, 1.0);
     let dimmed = clamp(object.params.y, 0.0, 1.0);
     let color = mix(lit, base * 1.4, emissive);
-    return vec4<f32>(color * mix(1.0, 0.24, dimmed), 1.0);
+    return vec4<f32>(color * mix(1.0, object.params.w, dimmed), 1.0);
 }
