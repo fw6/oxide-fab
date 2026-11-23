@@ -1,0 +1,173 @@
+crates/oxide-ui/src/desktop.rs
+  s_a5dcebfbff51de::t_6375566b3e2a4b 1-2,4,7-8,10,12-28,30-31,35,47,50-58,60-67,71-73
+  s_a5dcebfbff51de::t_d766760b9e5155 32-34,36-46
+  s_a5dcebfbff51de::t_bf759388d7e6cc 9
+crates/oxide-ui/nsh.json
+  s_a5dcebfbff51de::t_2bb42d603b4980 6
+  s_a5dcebfbff51de::t_e07bbb2a7f756f 11,13-15,17-31
+  s_a5dcebfbff51de::t_59c1bf04d43a4a 12
+  s_a5dcebfbff51de::t_12f09bc14a93a4 16
+crates/oxide-ui/App.test.tsx
+  s_a5dcebfbff51de::t_04324139b315bf 114-115,118
+  s_a5dcebfbff51de::t_3326b8e68b5eb2 1-4,6,49,51,63,65,104,106,112-113,119-120,137-147,150-156,159-171,174-253
+  s_a5dcebfbff51de::t_28c52e1cad39cf 116-117,121-136
+crates/oxide-ui/components/Shell.tsx
+  s_a5dcebfbff51de::t_5491c6c3958301 46
+  s_a5dcebfbff51de::t_adfe867710115e 1-31,33-45,47-66,68,70-74,77-88,91-130,132-142,144-148,151-193,195-213,215-217,220-223,226-274,288-324,332-356,358,361-371,373-376,378-385,387-403,416-449,455,457,460-465,467,474-476
+  s_a5dcebfbff51de::t_6b89e7908d4d18 275-287
+  s_a5dcebfbff51de::t_33b996a5bd0874 32,67,69,75-76,89-90,143,149-150,194,214,218-219,224-225,325-331,357,359-360,372,377,404-415,450-454,456,458-459
+  s_a5dcebfbff51de::t_5a08762e81184e 386,468-473
+  s_a5dcebfbff51de::t_f426f0442d4f5c 466
+  s_a5dcebfbff51de::t_150a90a8a2f5e5 131
+docs/rust-guidelines-review.md
+  s_a5dcebfbff51de::t_7c4b28f41fb151 8-10
+  s_a5dcebfbff51de::t_94e9653d31e7d6 306-308
+crates/oxide-ui/src/assets.rs
+  s_a5dcebfbff51de::t_97d7c6cdae30d1 1,3-8,16,20
+  s_a5dcebfbff51de::t_53ab07c592d0cb 2,9-15,17-19
+crates/oxide-ui/panels/Supply.tsx
+  s_a5dcebfbff51de::t_7d258e29feab2d 5
+  s_a5dcebfbff51de::t_62bef5f6974f07 1-4,6-88
+crates/oxide-render/src/bin/oxide-render-evidence.rs
+  s_a5dcebfbff51de::t_21d265fddb6512 116-117,119
+tools/blender/build_fab.py
+  s_a5dcebfbff51de::t_b101864e2412fe 4-6
+  s_a5dcebfbff51de::t_00540fdc68e7ae 43
+crates/oxide-ui/panels/Quality.tsx
+  s_a5dcebfbff51de::t_6354cdcecc6459 168,170
+  s_a5dcebfbff51de::t_e453e292d50fb5 1-15,17-167,169,171-322
+  s_a5dcebfbff51de::t_7d258e29feab2d 16
+crates/oxide-render/tests/render.rs
+  s_a5dcebfbff51de::t_551573ea99665a 13-14
+crates/oxide-ui/theme.json
+  s_a5dcebfbff51de::t_c47413340be804 5-6
+crates/oxide-scene/src/manifest.rs
+  s_a5dcebfbff51de::t_551573ea99665a 390-391
+crates/oxide-ui/tsconfig.json
+  s_a5dcebfbff51de::t_cd8a55b8e2be91 1-4
+crates/oxide-ui/Cargo.toml
+  s_a5dcebfbff51de::t_7785ba8d724600 29-31,34,40
+.github/workflows/ci.yml
+  s_a5dcebfbff51de::t_34ddc0984abcde 90
+  s_a5dcebfbff51de::t_871ca9b58cb9cd 161,164
+  s_a5dcebfbff51de::t_c8534efe8afda5 37
+README.md
+  s_a5dcebfbff51de::t_7902910a26ca16 135
+  s_a5dcebfbff51de::t_b98504a2b3545a 57
+  s_a5dcebfbff51de::t_b41e86e07552ec 12-16
+crates/oxide-ui/src/native/windows.rs
+  s_a5dcebfbff51de::t_3e14467a1c2941 144-146,148
+crates/oxide-ui/model.ts
+  s_a5dcebfbff51de::t_8bdd3194782dfa 1-19,22-284,287-479,481-509,511-529,531-545,547-551,553-560,562-566,568-572,574-581,583-584,586-594,596-600,603-610,613-618,621-623,626-639,642-645,648,650-657,660-664
+crates/oxide-ui/panels/Mes.tsx
+  s_a5dcebfbff51de::t_96eabbbc118a47 219-223
+  s_a5dcebfbff51de::t_728e9adf268285 251
+  s_a5dcebfbff51de::t_9c6fdad03b4571 209
+  s_a5dcebfbff51de::t_e3daa4053dba88 1-27,29,32-34,36-37,40-51,67,69-72,75,89-107,109-112,155-171,195,215-216,224-227,230-237,240-250,252-260,264-267,271-274,278-282
+  s_a5dcebfbff51de::t_7d258e29feab2d 28
+  s_a5dcebfbff51de::t_b2b70a56f52815 30-31,35,38-39,52-66,68,73-74,76-88,108,113-154,172-194,196-208,210-214,217-218,228-229,238-239,261-263,268-270,275-277
+crates/oxide-ui/panels/Productivity.tsx
+  s_a5dcebfbff51de::t_bec69e986e94dc 1-16,18-201,203-205,207-210,212-233
+  s_a5dcebfbff51de::t_7d258e29feab2d 17
+  s_a5dcebfbff51de::t_984159b67d6b6a 202,206,211
+crates/oxide-ui/src/viewport.rs
+  s_a5dcebfbff51de::t_678eae9e9a942d 251-252
+  s_a5dcebfbff51de::t_045ee1f902c572 1,3-7,18,20-27,29,33,39-40,53,57,59,62-64,66,68-69,71-74,78-83,85-86,88-97,99-101,104-108,111-112,117,120,122,125-130,133-135,139-147,152,155-167,170-184,235,238-250,254-260
+  s_a5dcebfbff51de::t_c6cbfcd9242e73 253
+  s_a5dcebfbff51de::t_849b615ad22766 54
+  s_a5dcebfbff51de::t_28b6a2bf4b4d9e 15
+  s_a5dcebfbff51de::t_f6d3861afc3a78 186-191,194-234
+  s_a5dcebfbff51de::t_b1327dc19487f1 34-38,42-48,51-52,55-56,60-61,65,67,76-77,102-103,113-114,118-119,123-124,131-132,137-138,148-149,153-154,168-169,192-193
+  s_a5dcebfbff51de::t_21ed70a8a437f0 136
+  s_a5dcebfbff51de::t_ca63b0eff844cc 75
+crates/oxide-render/src/glb.rs
+  s_a5dcebfbff51de::t_551573ea99665a 160-161
+crates/oxide-ui/palette.ts
+  s_a5dcebfbff51de::t_3b040fa3546c0c 1-63
+.github/workflows/release.yml
+  s_a5dcebfbff51de::t_c8534efe8afda5 36
+crates/oxide-ui/panels/Cross.tsx
+  s_a5dcebfbff51de::t_def948ea5b18b1 1-31,34-60,62-69,72-93,96-105,107-118,120-154,157-158,161-186,189-213,215-239,242-260,263-316
+  s_a5dcebfbff51de::t_7d258e29feab2d 32
+CHANGELOG.md
+  s_a5dcebfbff51de::t_7a11b5a3cddf80 31-40
+  s_a5dcebfbff51de::t_659fe984d0f658 41-45
+  s_a5dcebfbff51de::t_29bcf11ea741e7 46-48
+  s_a5dcebfbff51de::t_8fdd3635beab7a 49-54
+crates/oxide-ui/src/lib.rs
+  s_a5dcebfbff51de::t_7571a7888cff18 22
+  s_a5dcebfbff51de::t_93f79dfdcc48c8 1,3-7,10-19,23,28,53-54,57,59
+  s_a5dcebfbff51de::t_f80ffbcf9451c2 58
+crates/oxide-ui/src/engine.rs
+  s_a5dcebfbff51de::t_987a5d34215aa8 164
+  s_a5dcebfbff51de::t_90de0255d234e2 17
+docs/decisions/001-ui-toolchain.md
+  s_a5dcebfbff51de::t_87f9f9985d44ce 3-4
+crates/oxide-ui/components/ui.tsx
+  s_a5dcebfbff51de::t_f9e3cd01bceecb 51
+  s_a5dcebfbff51de::t_7bfbfa8d70f57d 122-129
+  s_a5dcebfbff51de::t_4be9d6c9127045 10-11,28-30,42,44,48,69-70,121,135
+  s_a5dcebfbff51de::t_2f787e90ad28a7 8,12-20,31-41,43,45-47,49,53-59,61-68,71-72,74-77,82-83,88-89,92-93,95,105-108,110-111,113,115-118,120,130-134,136-137,142
+  s_a5dcebfbff51de::t_6a23b5ef786121 1-7,21-27,60,73,78-81,84-87,90-91,94,96-104,109,112,114,119,138-141
+  s_a5dcebfbff51de::t_6edae6c0accedc 9
+  s_a5dcebfbff51de::t_e41b08cf89378e 50,52
+scripts/validate-assets.sh
+  s_a5dcebfbff51de::t_e00da09c35cda9 8-9
+crates/oxide-ui/.gitignore
+  s_a5dcebfbff51de::t_ccd5ed9ea38c05 1-5
+.cargo/config.toml
+  s_a5dcebfbff51de::t_4cb388a2cad880 1-15
+crates/oxide-ui/src/scene.rs
+  s_a5dcebfbff51de::t_b5edaa69c9a4e9 1,3-6,8,15,17-28,30-37,41,43-44,46-129,131-151,155-231,236-339,341,344,347,360-362
+  s_a5dcebfbff51de::t_17f58f26a06d36 10-11,130
+  s_a5dcebfbff51de::t_870f0bd73bef5d 42,45
+  s_a5dcebfbff51de::t_afdb079f82ce0f 232-235
+crates/oxide-ui/src/palette.rs
+  s_a5dcebfbff51de::t_d7becf9b762a3e 1,3-6,8,10,15,23,26-37,39,41,50-53,55-56,61-65
+crates/oxide-ui/components/Viewport.tsx
+  s_a5dcebfbff51de::t_42f163bd999311 30
+  s_a5dcebfbff51de::t_9ec284f4482000 29
+  s_a5dcebfbff51de::t_6e4d07afd83f9c 1-28,31-101,103-136,187-189
+  s_a5dcebfbff51de::t_5a08762e81184e 137-186
+  s_a5dcebfbff51de::t_93f91654079781 102
+docs/architecture.md
+  s_a5dcebfbff51de::t_6cad69a1631eb0 53-61
+  s_a5dcebfbff51de::t_becabfe2b18bda 152-160,177-181
+crates/oxide-ui/App.tsx
+  s_a5dcebfbff51de::t_b7931b9042c221 1-4,7-9
+  s_a5dcebfbff51de::t_0c30c75db84430 5-6,10-12
+crates/oxide-ui/store.ts
+  s_a5dcebfbff51de::t_899cfb77cdc694 7
+  s_a5dcebfbff51de::t_2f3ee55789af0d 99
+  s_a5dcebfbff51de::t_20c66a2c9e869c 688
+  s_a5dcebfbff51de::t_f5b59dc862a128 1-6,8-37,39-98,100-156,163-446,448-509,515-687,689-702
+  s_a5dcebfbff51de::t_ff2e77d217c8b5 38
+  s_a5dcebfbff51de::t_84fbb88d242991 157-162
+  s_a5dcebfbff51de::t_d25f579e74668d 447
+  s_a5dcebfbff51de::t_13618cd068051d 510-514
+docs/decisions/006-scene-and-render-host.md
+  s_a5dcebfbff51de::t_85b4fc1076f6d9 18-19,25-27
+docs/decisions/010-tsx-interface.md
+  s_a5dcebfbff51de::t_59633956991036 87,92,94-102
+  s_a5dcebfbff51de::t_b6ec05f4a9c574 69-86,88-91,93,103-105
+  s_a5dcebfbff51de::t_5e30684dea2ea9 127-132
+  s_a5dcebfbff51de::t_2c5d4290db5d62 34-47
+  s_a5dcebfbff51de::t_40971ea5c27060 49-54
+  s_a5dcebfbff51de::t_cb4688c6de6c86 1-33,48,55-68,106-126,133-136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "332e8d83f3a59ff13f9501ed5efe164419a2452d",
+  "prompts": {},
+  "sessions": {
+    "s_a5dcebfbff51de": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_a9214184-72f7-43ba-a857-b011c698e6d3",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
