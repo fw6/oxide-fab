@@ -10,7 +10,7 @@ description = "The wgpu renderer of oxide-fab: GLB meshes, an orbit camera, pick
 [dependencies]
 oxide-scene = { workspace = true }
 bytemuck = { version = "1", features = ["derive"] }
-glam = "0.30"
+glam = "0.34"
 gltf = "1.4"
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
