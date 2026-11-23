@@ -1,0 +1,21 @@
+crates/oxide-ui/model.ts
+  s_a5dcebfbff51de::t_18c2de827e3beb 643,645
+crates/oxide-ui/components/Shell.tsx
+  s_a5dcebfbff51de::t_bb1c6806c4516b 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "0ff12d9738489203cc6a5fe2d5a0318c9fc709a7",
+  "prompts": {},
+  "sessions": {
+    "s_a5dcebfbff51de": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_a9214184-72f7-43ba-a857-b011c698e6d3",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
