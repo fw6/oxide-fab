@@ -1,0 +1,66 @@
+{
+  "provider": "Figma MCP generate_image",
+  "model": "gpt-image-2.5-flare",
+  "file": "https://www.figma.com/design/oTPS28Fv8rCnNaOQNYAsgE",
+  "generated": "2026-11-23",
+  "notes": "The Figma image tool takes a prompt and no input image, so each sheet was generated from its own written brief. AnyMachine's chain (turnaround, then close-ups generated from the turnaround) needs an image-to-image provider such as fal; the prompts are kept here so the same jobs can be re-run there.",
+  "prompt_sheet": "prompts.md",
+  "jobs": [
+    {
+      "out": "clean_turn.jpg",
+      "node": "1:2",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Technical reference sheet for 3D modelling: ONE semiconductor wet-clean process tool shown from six directions in one image — front, left side, rear, right side, top (the first five true orthographic elevations of the same object at one scale, neatly arranged) and one three-quarter view — on a flat neutral grey background, no labels, no text, no annotations, even studio lighting, the whole tool in frame. The tool is 4.2 metres wide, 1.5 metres deep and 2.6 metres tall: a light-grey sheet-metal enclosure on a dark welded steel base frame with leveling feet, two framed service doors with hinges and handles on the front, louvred vent panels on the sides, a boxy stainless process module with bolted lid and plumbing on top, a compact front-end module with two FOUP load ports at the front left, a small HMI console on an arm, and a round exhaust duct rising from the process module. Photographic, sharp, physically plausible heavy industrial engineering."
+    },
+    {
+      "out": "litho_turn.jpg",
+      "node": "1:3",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Technical reference sheet for 3D modelling: ONE semiconductor lithography scanner shown from six directions in one image — front, left side, rear, right side, top (the first five true orthographic elevations of the same object at one scale, neatly arranged) and one three-quarter view — on a flat neutral grey background, no labels, no text, no annotations, even studio lighting, the whole tool in frame. The tool is 5.6 metres wide, 2.0 metres deep and 2.8 metres tall: a large light-grey environmental enclosure with chamfered corners and framed access doors on a dark steel base frame with leveling feet, a big cylindrical lens column with bolted flanges rising from the top, a wafer stage opening, two FOUP load ports on the front left, a gas cabinet at the rear, louvred air-shower panels, an HMI console on an arm, and a round exhaust duct. Photographic, sharp, physically plausible heavy industrial engineering."
+    },
+    {
+      "out": "etch_turn.jpg",
+      "node": "1:4",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Technical reference sheet for 3D modelling: ONE semiconductor plasma etch cluster tool shown from six directions in one image — front, left side, rear, right side, top (the first five true orthographic elevations of the same object at one scale, neatly arranged) and one three-quarter view — on a flat neutral grey background, no labels, no text, no annotations, even studio lighting, the whole tool in frame. The tool is 4.6 metres wide, 1.7 metres deep and 2.7 metres tall: a light-grey sheet-metal enclosure on a dark welded steel base frame, a cylindrical aluminium process chamber with a bolted ring flange and a domed lid on top, a black RF match box with cooling fins at the side, a turbo pump and foreline below the chamber, a gas box with feed tubes at the rear, one FOUP load port on the front left, framed service doors with hinges, louvred vents, an HMI console, and a round exhaust duct with an elbow. Photographic, sharp, physically plausible heavy industrial engineering."
+    },
+    {
+      "out": "metrology_turn.jpg",
+      "node": "1:5",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Technical reference sheet for 3D modelling: ONE semiconductor metrology and inspection tool shown from six directions in one image — front, left side, rear, right side, top (the first five true orthographic elevations of the same object at one scale, neatly arranged) and one three-quarter view — on a flat neutral grey background, no labels, no text, no annotations, even studio lighting, the whole tool in frame. The tool is 4.0 metres wide, 1.6 metres deep and 2.4 metres tall: a compact light-grey sheet-metal enclosure on a dark steel base frame with leveling feet, a boxy measurement chamber with a bolted top flange and an optics column rising above it, a framed hatch with a window on the front, one FOUP load port at the front left, louvred side vents, a small HMI console, a rear junction box with conduits, and a slim exhaust duct. Photographic, sharp, physically plausible heavy industrial engineering."
+    },
+    {
+      "out": "clean_detail.jpg",
+      "node": "1:6",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Construction close-up sheet of ONE semiconductor wet-clean tool: six square panels on a flat neutral grey background, no labels, no text, even studio light, photographic, readable as real heavy engineering. Panels: (1) a corner of the light-grey sheet-metal enclosure with panel seams, captive bolts and a door hinge; (2) the front load port with a white FOUP docking on its kinematic plate, guide rails and a stack light; (3) the boxy stainless process module with a bolted lid flange, gas feed tubes and a viewport; (4) the operator HMI console with recessed screen, button row and red E-stop; (5) the round exhaust duct with bolted flanges, damper lever and swept elbow; (6) the welded steel base frame with leveling feet, cable entry and a cable tray. Square-on or 30-degree views."
+    },
+    {
+      "out": "litho_detail.jpg",
+      "node": "1:7",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Construction close-up sheet of ONE semiconductor lithography scanner: six square panels on a flat neutral grey background, no labels, no text, even studio light, photographic, readable as real heavy engineering. Panels: (1) a chamfered corner of the environmental enclosure with panel seams, captive bolts and a heavy door hinge; (2) the front load port with a white FOUP docking, guide rails, presence sensors and a stack light; (3) the cylindrical lens column base with a large bolted ring flange and a viewport; (4) the operator HMI console with recessed screen, keypad and E-stop; (5) the exhaust duct with bolted flanges, damper lever and swept elbow; (6) the base frame with leveling feet and a gas cabinet with feed lines. Square-on or 30-degree views."
+    },
+    {
+      "out": "etch_detail.jpg",
+      "node": "1:8",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Construction close-up sheet of ONE semiconductor plasma etch cluster tool: six square panels on a flat neutral grey background, no labels, no text, even studio light, photographic, readable as real heavy engineering. Panels: (1) a corner of the light-grey enclosure with panel seams, bolts and a door hinge; (2) the front load port with a white FOUP docking, guide rails and a stack light; (3) the cylindrical aluminium process chamber with a bolted ring flange, domed lid and a small viewport; (4) the operator HMI console with recessed screen, buttons and E-stop; (5) the round exhaust duct with bolted flanges, damper and swept elbow; (6) the black RF match box with cooling fins and the turbo pump with its foreline. Square-on or 30-degree views."
+    },
+    {
+      "out": "metrology_detail.jpg",
+      "node": "1:9",
+      "width": 1536,
+      "height": 1024,
+      "prompt": "Construction close-up sheet of ONE semiconductor metrology tool: six square panels on a flat neutral grey background, no labels, no text, even studio light, photographic, readable as real heavy engineering. Panels: (1) a corner of the compact enclosure with panel seams, bolts and a door hinge; (2) the front load port with a white FOUP docking and guide rails; (3) the boxy measurement chamber with a bolted top flange and an optics column above it; (4) the operator HMI console with a small recessed screen, buttons and E-stop; (5) the slim exhaust duct with flanges and a swept elbow; (6) the base frame with leveling feet and a rear junction box with conduits. Square-on or 30-degree views."
+    }
+  ]
+}

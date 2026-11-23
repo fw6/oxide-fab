@@ -180,6 +180,29 @@ Windows forwards its own wheel as the `nativewheel` native event (the view
 binary share one code path (ADR 006). Rust state lives behind one process-wide
 slot, so a TSX hot reload keeps the camera and the GPU. The split is ADR 010.
 
+### The model
+
+`tools/blender/build_fab.py` builds the scene one real part at a time on the
+shared hard-surface kit in `tools/blender/kit.py` (boxes with hidden faces
+skipped, chamfers, bolted flanges, mitred pipes, louvres, hinges, rows of
+bolts), following [AnyMachine](https://github.com/apekshik/anymachine)'s
+reference-first method: the part list is the script's header, each piece is
+built as its own piece of metal, and the build prints triangles and node boxes.
+Reference sheets for the four tool kinds are in `tools/blender/refs/`, with the
+prompts that made them.
+
+`tools/blender/bake.py` unwraps every mesh, bakes paint variation, edge wear,
+grime, a fine paint bump and an AO / roughness / metallic map, and packs all 46
+UV tiles into one 2048 atlas set (`fab-base`, `fab-normal`, `fab-orm`). The
+runtime loads the atlas from the GLB, adds UV to its vertex format and samples
+base colour, normal (tangent frame from screen-space derivatives) and ORM in
+`oxide-render`. One manifest node is still one mesh, so the pieces of a semantic
+part (`body`, `chamber`, `loadport`, `panel`, `exhaust`) are joined into that
+part; the scene graph's per-node colour tints the texture. The committed GLB is
+the only input to the runtime; `bpy` is not a package dependency, and rebuilding
+is `blender --background --factory-startup --python tools/blender/build_fab.py`
+(`--nobake` skips the texture bake for geometry checks).
+
 ## Time series model
 
 | Table | Primary key | Written when |

@@ -12,6 +12,9 @@ artifacts/*
 .env
 .DS_Store
 
+# Python bytecode from the Blender build scripts
+__pycache__/
+
 # Local agent configuration (.zcode/agents, sessions)
 .zcode/
 

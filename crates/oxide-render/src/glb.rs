@@ -18,6 +18,7 @@ use crate::RenderError;
 pub struct Vertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
+    pub uv: [f32; 2],
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,17 +29,36 @@ pub struct Mesh {
     pub base_color: [f32; 4],
 }
 
+/// One decoded texture, RGBA8.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Image {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+/// The three maps the bake writes: base colour (sRGB), tangent-space normal and
+/// an ORM map (R = ambient occlusion, G = roughness, B = metallic).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Textures {
+    pub base: Option<Image>,
+    pub normal: Option<Image>,
+    pub orm: Option<Image>,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Model {
     meshes: BTreeMap<String, Mesh>,
     nodes: Vec<String>,
+    textures: Textures,
 }
 
 impl Model {
     /// Parse a GLB and bake every node's world transform into its mesh.
     pub fn load(bytes: &[u8]) -> Result<Self, RenderError> {
-        let (document, buffers, _images) =
+        let (document, buffers, images) =
             gltf::import_slice(bytes).map_err(|error| RenderError::Glb(error.to_string()))?;
+        let decoded: Vec<Option<Image>> = images.iter().map(Image::from_gltf).collect();
         let mut model = Self::default();
         let mut walked = false;
         for scene in document.scenes() {
@@ -51,6 +71,30 @@ impl Model {
         if !walked {
             for node in document.nodes() {
                 model.walk(&node, Mat4::IDENTITY, &buffers);
+            }
+        }
+        // The scene is one material family: every material references the same
+        // three atlas images, so the first material that names one wins.
+        for material in document.materials() {
+            let pbr = material.pbr_metallic_roughness();
+            if model.textures.base.is_none() {
+                model.textures.base = pbr
+                    .base_color_texture()
+                    .and_then(|info| pick(&decoded, &info.texture()));
+            }
+            if model.textures.normal.is_none() {
+                model.textures.normal = material
+                    .normal_texture()
+                    .and_then(|info| pick(&decoded, &info.texture()));
+            }
+            if model.textures.orm.is_none() {
+                model.textures.orm = material
+                    .occlusion_texture()
+                    .and_then(|info| pick(&decoded, &info.texture()))
+                    .or_else(|| {
+                        pbr.metallic_roughness_texture()
+                            .and_then(|info| pick(&decoded, &info.texture()))
+                    });
             }
         }
         Ok(model)
@@ -80,9 +124,14 @@ impl Model {
                 let normals: Vec<[f32; 3]> = reader
                     .read_normals()
                     .map_or_else(|| vec![[0.0, 1.0, 0.0]; positions.len()], Iterator::collect);
+                let uvs: Vec<[f32; 2]> = reader.read_tex_coords(0).map_or_else(
+                    || vec![[0.0, 0.0]; positions.len()],
+                    |coords| coords.into_f32().collect(),
+                );
                 let normal_matrix = world.inverse().transpose();
                 let base = combined.vertices.len() as u32;
-                for (position, normal) in positions.iter().zip(normals.iter()) {
+                for ((position, normal), uv) in positions.iter().zip(normals.iter()).zip(uvs.iter())
+                {
                     let point = world.transform_point3(Vec3::from(*position));
                     let n = normal_matrix
                         .transform_vector3(Vec3::from(*normal))
@@ -90,6 +139,7 @@ impl Model {
                     combined.vertices.push(Vertex {
                         position: point.to_array(),
                         normal: n.to_array(),
+                        uv: *uv,
                     });
                 }
                 let indices: Vec<u32> = reader.read_indices().map_or_else(
@@ -117,6 +167,11 @@ impl Model {
     #[must_use]
     pub fn mesh(&self, node: &str) -> Option<&Mesh> {
         self.meshes.get(node)
+    }
+
+    #[must_use]
+    pub fn textures(&self) -> &Textures {
+        &self.textures
     }
 
     pub fn meshes(&self) -> impl Iterator<Item = (&String, &Mesh)> {
@@ -153,6 +208,44 @@ impl Model {
     }
 }
 
+impl Image {
+    fn from_gltf(data: &gltf::image::Data) -> Option<Self> {
+        let count = (data.width as usize).checked_mul(data.height as usize)?;
+        let pixels = &data.pixels;
+        let mut rgba = Vec::with_capacity(count * 4);
+        match data.format {
+            gltf::image::Format::R8G8B8A8 => {
+                rgba.extend_from_slice(pixels.get(..count * 4)?);
+            }
+            gltf::image::Format::R8G8B8 => {
+                for pixel in pixels.get(..count * 3)?.as_chunks::<3>().0 {
+                    rgba.extend_from_slice(&[pixel[0], pixel[1], pixel[2], 255]);
+                }
+            }
+            gltf::image::Format::R8G8 => {
+                for pixel in pixels.get(..count * 2)?.as_chunks::<2>().0 {
+                    rgba.extend_from_slice(&[pixel[0], pixel[1], 0, 255]);
+                }
+            }
+            gltf::image::Format::R8 => {
+                for value in pixels.get(..count)? {
+                    rgba.extend_from_slice(&[*value, *value, *value, 255]);
+                }
+            }
+            _ => return None,
+        }
+        Some(Self {
+            width: data.width,
+            height: data.height,
+            rgba,
+        })
+    }
+}
+
+fn pick(images: &[Option<Image>], texture: &gltf::Texture<'_>) -> Option<Image> {
+    images.get(texture.source().index()).cloned().flatten()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,6 +260,21 @@ mod tests {
         model.validate(&manifest).unwrap();
         assert_eq!(model.mesh_count(), manifest.expected_nodes().len());
         assert!(model.vertex_count() > 0);
+    }
+
+    #[test]
+    fn the_committed_glb_carries_a_texture_set_and_uvs() {
+        let model = Model::load(GLB).unwrap();
+        let textures = model.textures();
+        assert!(textures.base.is_some(), "base colour atlas");
+        assert!(textures.normal.is_some(), "normal atlas");
+        assert!(textures.orm.is_some(), "ORM atlas");
+        for (name, mesh) in model.meshes() {
+            assert!(
+                mesh.vertices.iter().any(|vertex| vertex.uv != [0.0, 0.0]),
+                "{name} has no UVs"
+            );
+        }
     }
 
     #[test]

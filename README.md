@@ -92,8 +92,9 @@ nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
 
 | | |
 |---|---|
-| 建模 | [`tools/blender/build_fab.py`](tools/blender/build_fab.py) 离线导出 GLB 与 manifest；`bpy` 不在运行时、CI 或发布包里 |
-| 渲染 | `oxide-render`：wgpu 29，深度测试、正交/透视、逐部件变换矩阵、离屏回读；三平台原生组件只负责把帧贴到窗口 |
+| 建模 | [`tools/blender/build_fab.py`](tools/blender/build_fab.py) 在 [`kit.py`](tools/blender/kit.py) 上按 AnyMachine 的参考先行硬表面方法逐零件建出全厂：机台框架与调平脚、门/铰链/百叶、腔体法兰与视窗、装载口、HMI、排风弯管，以及地砖、工艺带、I 型 AMHS 轨道与 FOUP；四种机型的参考六视图与构造特写板在 [`refs/`](tools/blender/refs/jobs_refs.json)；离线导出 GLB 与 manifest，`bpy` 不在运行时、CI 或发布包里 |
+| 纹理 | [`bake.py`](tools/blender/bake.py)：每个网格 Smart UV 展开后烘出基础色、法线、AO/粗糙/金属，46 块 UV 拼进一张 2048 图集；运行时采样这套贴图，节点颜色作为染色 |
+| 渲染 | `oxide-render`：wgpu 29，UV + 基础色/法线/ORM 贴图、深度测试、正交/透视、逐部件变换矩阵、离屏回读；三平台原生组件只负责把帧贴到窗口 |
 | 拾取 | `oxide-scene`：同一台相机发出射线，与 manifest 的 AABB 求交，命中与面板/搜索指向同一个 `Entity` |
 | 层级 | L0 全厂 → L1 爆炸部件 → L2 25 槽晶圆与缺陷分类 → L3 `event_id` → outbox → GreptimeDB 行 |
 | 主题 | 深色「Cleanroom Night」与浅色「Porcelain & Ink」一键切换，见 [视觉候选](docs/design/visual-proposals.md) |

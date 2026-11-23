@@ -12,7 +12,7 @@ use bytemuck::{Pod, Zeroable};
 use oxide_scene::{Camera, SceneGraph, Shape};
 
 use crate::RenderError;
-use crate::glb::Model;
+use crate::glb::{Image, Model};
 use crate::gpu::{AdapterReport, Gpu};
 
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -143,6 +143,7 @@ pub struct Renderer {
     camera_bind: wgpu::BindGroup,
     object_buffer: wgpu::Buffer,
     object_bind: wgpu::BindGroup,
+    textures: wgpu::BindGroup,
     meshes: BTreeMap<String, GpuMesh>,
     cube: GpuMesh,
     mesh_pipeline: wgpu::RenderPipeline,
@@ -236,6 +237,51 @@ impl Renderer {
             }],
         });
 
+        let texture_layout =
+            gpu.device
+                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("oxide-render texture layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Texture {
+                                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                                view_dimension: wgpu::TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::FRAGMENT,
+                            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                            count: None,
+                        },
+                    ],
+                });
+        let textures = texture_bind_group(&gpu, &texture_layout, model.textures());
+
         let scene_shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -252,7 +298,11 @@ impl Renderer {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("oxide-render mesh layout"),
-                bind_group_layouts: &[Some(&camera_layout), Some(&object_layout)],
+                bind_group_layouts: &[
+                    Some(&camera_layout),
+                    Some(&object_layout),
+                    Some(&texture_layout),
+                ],
                 immediate_size: 0,
             });
         let line_layout = gpu
@@ -276,6 +326,11 @@ impl Renderer {
                     format: wgpu::VertexFormat::Float32x3,
                     offset: 12,
                     shader_location: 1,
+                },
+                wgpu::VertexAttribute {
+                    format: wgpu::VertexFormat::Float32x2,
+                    offset: 24,
+                    shader_location: 2,
                 },
             ],
         };
@@ -397,6 +452,7 @@ impl Renderer {
             camera_bind,
             object_buffer,
             object_bind,
+            textures,
             meshes,
             cube,
             mesh_pipeline,
@@ -445,7 +501,7 @@ impl Renderer {
             view_proj: camera.view_projection(aspect).to_cols_array_2d(),
             eye: [eye.x, eye.y, eye.z, 1.0],
             light: [-0.42, 0.86, 0.30, 0.0],
-            ambient: [0.56, 0.0, 0.0, 0.0],
+            ambient: [0.66, 0.0, 0.0, 0.0],
         };
         self.gpu
             .queue
@@ -481,7 +537,14 @@ impl Renderer {
             let object = ObjectUniform {
                 model: node.transform.to_cols_array_2d(),
                 color,
-                params: [node.emissive, if node.dimmed { 1.0 } else { 0.0 }, 0.0, 0.0],
+                // z = 1 when the mesh is a textured part, 0 for the solid unit
+                // cube the graph uses for status lights and beacons.
+                params: [
+                    node.emissive,
+                    if node.dimmed { 1.0 } else { 0.0 },
+                    if node.mesh.is_some() { 1.0 } else { 0.0 },
+                    0.0,
+                ],
             };
             let offset = index as u64 * OBJECT_ALIGN;
             self.gpu
@@ -530,6 +593,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             pass.set_bind_group(0, &self.camera_bind, &[]);
+            pass.set_bind_group(2, &self.textures, &[]);
             pass.set_pipeline(&self.mesh_pipeline);
             for (mesh, offset) in &draws {
                 pass.set_bind_group(1, &self.object_bind, &[*offset]);
@@ -680,6 +744,116 @@ fn upload_mesh(gpu: &Gpu, label: &str, mesh: &crate::glb::Mesh) -> GpuMesh {
     }
 }
 
+fn upload_texture(
+    gpu: &Gpu,
+    label: &str,
+    image: Option<&Image>,
+    format: wgpu::TextureFormat,
+    fallback: [u8; 4],
+) -> wgpu::Texture {
+    let (width, height, data) = match image {
+        Some(image) => (image.width.max(1), image.height.max(1), image.rgba.clone()),
+        None => (1, 1, fallback.to_vec()),
+    };
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some(label),
+        size: wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format,
+        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+        view_formats: &[],
+    });
+    gpu.queue.write_texture(
+        wgpu::TexelCopyTextureInfo {
+            texture: &texture,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        &data,
+        wgpu::TexelCopyBufferLayout {
+            offset: 0,
+            bytes_per_row: Some(width * 4),
+            rows_per_image: Some(height),
+        },
+        wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        },
+    );
+    texture
+}
+
+fn texture_bind_group(
+    gpu: &Gpu,
+    layout: &wgpu::BindGroupLayout,
+    textures: &crate::glb::Textures,
+) -> wgpu::BindGroup {
+    let base = upload_texture(
+        gpu,
+        "fab base",
+        textures.base.as_ref(),
+        wgpu::TextureFormat::Rgba8UnormSrgb,
+        [255, 255, 255, 255],
+    );
+    let normal = upload_texture(
+        gpu,
+        "fab normal",
+        textures.normal.as_ref(),
+        wgpu::TextureFormat::Rgba8Unorm,
+        [128, 128, 255, 255],
+    );
+    let orm = upload_texture(
+        gpu,
+        "fab orm",
+        textures.orm.as_ref(),
+        wgpu::TextureFormat::Rgba8Unorm,
+        [255, 115, 0, 255],
+    );
+    let base_view = base.create_view(&wgpu::TextureViewDescriptor::default());
+    let normal_view = normal.create_view(&wgpu::TextureViewDescriptor::default());
+    let orm_view = orm.create_view(&wgpu::TextureViewDescriptor::default());
+    let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+        label: Some("fab sampler"),
+        address_mode_u: wgpu::AddressMode::ClampToEdge,
+        address_mode_v: wgpu::AddressMode::ClampToEdge,
+        address_mode_w: wgpu::AddressMode::ClampToEdge,
+        mag_filter: wgpu::FilterMode::Linear,
+        min_filter: wgpu::FilterMode::Linear,
+        mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+        ..Default::default()
+    });
+    gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("oxide-render texture bind"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::TextureView(&base_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(&normal_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(&orm_view),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(&sampler),
+            },
+        ],
+    })
+}
+
 fn unit_cube() -> crate::glb::Mesh {
     use crate::glb::Vertex;
     let faces: [([f32; 3], [[f32; 3]; 4]); 6] = [
@@ -743,7 +917,11 @@ fn unit_cube() -> crate::glb::Mesh {
     for (normal, corners) in faces {
         let base = vertices.len() as u32;
         for position in corners {
-            vertices.push(Vertex { position, normal });
+            vertices.push(Vertex {
+                position,
+                normal,
+                uv: [0.0, 0.0],
+            });
         }
         indices.extend([base, base + 1, base + 2, base, base + 2, base + 3]);
     }
