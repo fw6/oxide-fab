@@ -27,7 +27,7 @@
 | 5 | 幂等：同一 `event_id` 投两次，点数不增 | `./scripts/idempotency.sh` | 通过：两次重投 `delta=0`，四张表前后计数一致 | `artifacts/idempotency-final.log` |
 | 6 | 清空 Greptime → replay → 点数与聚合一致 | `./scripts/replay.sh` | 通过：24/24、24/24、72/72、6/6，`spc_avg` delta=0 | `artifacts/replay-final.log` |
 | 7 | 隔离实例 backup + restore，行数与 `max(created_at)` 校验 | `./scripts/backup.sh && ./scripts/restore.sh` | 通过：`ok=true`、lots=6、events=108、Greptime 4 表 24 行、82.7 s | `artifacts/backup-final.log`、`artifacts/restore-final.log`、`artifacts/restore-latest.json` |
-| 8 | chaos 场景跑完且含 RPO/RTO 数字 | `./scripts/chaos.sh` | 通过 4 场景：kill-store 48.6 s（积压 60 条）、kill-db 18.9 s、secs-reconnect 5.3 s（spool 36/36）、restore-drill 91.9 s，RPO 全 0 | `docs/chaos-report.md`、`artifacts/chaos-console-final.log` |
+| 8 | chaos 场景跑完且含 RPO/RTO 数字 | `./scripts/chaos.sh` | 通过 4 场景：kill-store 48.6 s（积压 60 条）、kill-db 18.9 s、secs-reconnect 5.3 s（spool 36/36）、restore-drill 91.9 s，RPO 全 0 | `artifacts/chaos-console-final.log`（本轮报告随后被重写；长期报告 `docs/chaos-report.md` 为另一次运行） |
 | 9 | 两个 workflow 可解析；`v*` 链产出 3 平台二进制 + SHA256SUMS + GHCR 镜像（含 nsh 产物映射，见下） | CI 的 actionlint job；`git push origin v0.1.0`、`v0.1.1`、`v0.1.2` | 通过：actionlint 绿；三次 release 各 7 个资产（3 平台二进制、web、tui、SHA256SUMS、chaos-report），5 个校验和本地 `shasum -c` 全 OK；镜像已推送，manifest 含 linux/amd64 + linux/arm64，本机 `docker pull` 成功并运行 | run `43941341476`、`43952543568`、`43964558701`；`gh release view v0.1.2`；`docker manifest inspect ghcr.io/fw6/oxide-fab:0.1.2` |
 | 10 | README 含边界声明、命名由来、真实截图、架构图、RPO/RTO、已知限制 | `grep '^## ' README.md` | 通过：10 节齐全 | `README.md`、`artifacts/accept-10-12-checks.log` |
 | 11 | 无硬编码密钥、无 TODO 占位假绿 | `git grep -nE 'TODO\|unimplemented!\|todo!'`；密钥模式 grep | 通过：均为空 | `artifacts/accept-10-12-checks.log` |

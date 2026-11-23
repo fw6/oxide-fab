@@ -76,10 +76,13 @@ applied every frame; nothing is pre-baked into layered images.
 3. A `Rgba8UnormSrgb` texture is copied into a padded read-back buffer and
    mapped; the bytes are returned as a top-down RGBA frame.
 
-The target is capped at 1600 px a side. The app requests two device pixels per
-point and the cap wins above 800 pt, so the read-back stays bounded. The frame
-pump runs at 20 Hz and **drops** a job when the previous one is still rendering:
-a slow GPU skips frames instead of stalling the UI.
+The target is capped at 1600 px a side and 1.6 megapixels; both axes share one
+scale, so the picture keeps the view's aspect and picking uses the projection it
+was drawn with. The frame pump ticks at 20 Hz but submits only when the scene,
+camera or device-pixel size changed, or while a FOUP is in transit. While the
+render thread is still on the previous job it refuses the new one, and the
+viewport retries with its newest state on the next tick: a slow GPU skips frames
+instead of stalling the UI, and an idle view costs no GPU work.
 
 ### Why offscreen instead of three surfaces
 

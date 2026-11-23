@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Fault injection: stop the time series store, stop PostgreSQL, and run a full
 # restore drill. Every scenario records what was lost (RPO) and how long
-# recovery took (RTO), and appends to artifacts/chaos-report.md.
+# recovery took (RTO), and rewrites docs/chaos-report.md, the committed report
+# the README quotes (copied to artifacts/ for CI to upload).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SCRIPT_DIR/lib.sh"
 start_log chaos
 
-REPORT="$ARTIFACTS/chaos-report.md"
+REPORT="$ROOT/docs/chaos-report.md"
 # The report is committed to docs/, so it names its evidence by its path in the
 # repository rather than by this machine's absolute path.
 LOG_REL="artifacts/$(basename "$LOG")"
@@ -350,6 +351,7 @@ EOF
 
 echo
 echo "-- report written to ${REPORT}"
+cp "$REPORT" "$ARTIFACTS/chaos-report.md"
 if [ "$failures" -ne 0 ]; then
   echo "FAIL: ${failures} scenario(s) failed"
   exit 1

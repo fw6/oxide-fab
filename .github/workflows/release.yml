@@ -95,6 +95,8 @@ jobs:
           mkdir -p "dist/${name}"
           cp target/release/oxide "dist/${name}/oxide"
           cp README.md LICENSE "dist/${name}/"
+          # The server reads both before it can start (or migrate).
+          cp -R config migrations "dist/${name}/"
           tar -C dist -czf "dist/${name}.tar.gz" "${name}"
           echo "ASSET=dist/${name}.tar.gz" >> "$GITHUB_ENV"
 
@@ -106,6 +108,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path "dist/$name" | Out-Null
           Copy-Item target/release/oxide.exe "dist/$name/oxide.exe"
           Copy-Item README.md, LICENSE "dist/$name/"
+          # The server reads both before it can start (or migrate).
+          Copy-Item config, migrations "dist/$name/" -Recurse
           Compress-Archive -Path "dist/$name" -DestinationPath "dist/$name.zip"
           Add-Content -Path $env:GITHUB_ENV -Value "ASSET=dist/$name.zip"
 
@@ -496,7 +500,11 @@ jobs:
 
           EOF
           {
-            awk 'BEGIN{p=0} /^## \[/{p++} p==1{print} p==2{exit}' CHANGELOG.md
+            awk -v heading="## [${VERSION}]" '
+              index($0, heading) == 1 { printing = 1 }
+              printing && /^## \[/ && index($0, heading) != 1 { exit }
+              printing { print }
+            ' CHANGELOG.md
             echo ""
             echo "完整记录见仓库的 CHANGELOG.md。"
           } >> NOTES.md

@@ -152,12 +152,13 @@ the Work-Next panel. What-if runs the same engine on a cloned state.
 TSX (App.tsx, store.ts, panels/)
   ├─ signals: snapshot, selection, level, explosion, theme
   ├─ every change calls `Viewport.setScene(SceneInput)` (one Rust call)
-  └─ every 50 ms calls `Viewport.tick()` and feeds the frame version to the view
+  └─ every 50 ms calls `Viewport.tick()`; a tick submits only when the scene,
+     camera or device-pixel size changed, or a FOUP is in transit
 
 Viewport module (oxide-ui, Rust)
   ├─ builds the SceneGraph from SceneInput (oxide-scene::build)
   ├─ owns Camera, picking and framing (scene/size inputs from TSX)
-  └─ submits { graph, camera, size } to the render thread
+  └─ submits { graph, camera, size } to the render thread when the frame changed
 
 render thread (oxide-render)
   ├─ glTF meshes (world transforms baked at load)

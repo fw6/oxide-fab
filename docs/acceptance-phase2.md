@@ -41,7 +41,7 @@ Windows 由 CI 的 `desktop` 矩阵在 `windows-latest` 上执行，run `4427883
 | A-07 | 每条派工显示规则与依据 | 实测快照 `dispatch`：`{"lot_id":"LOT-0005","step_no":4,"equipment_id":"MET-01","queue_position":0,"queue_len":1,"qualified_tools":["MET-01"],"recipe_id":"RCP-METRO","rule":"优先级 → FIFO"}`；`artifacts/accept-api-phase2.log`；效率面板截图 | 通过 |
 | A-08 | what-if 产出前后对比，运行实例未改写 | 单测 `what_if_runs_from_the_snapshot_without_touching_the_live_sim`；`POST /api/what-if` 实测：加一台 etch，周期 38083→30583 ms、产出 317.2→406.8/h（`artifacts/accept-api-phase2.log`）；截图 `docs/screenshots/workbench-dark-whatif.png`（含「从 t0 重放」标注） | 通过 |
 | A-09 | 巡查覆盖 PG / Greptime / MinIO / API / 投递者 | 实测 `monitor: postgres=up greptimedb=up object-store=up outbox-publisher=up oxide-api=up secs-host=up`；横切面板截图 | 通过 |
-| A-10 | chaos 三场景行为符合第 5 节，503 不产生脏数据，报告含 RPO/RTO | `./scripts/chaos.sh` 四场景全 PASS：kill-store RTO 48.6 s（60 条积压）、kill-db 18.9 s、secs-reconnect 5.3 s（spool 36/36）、restore-drill 91.9 s，RPO 全 0；`docs/chaos-report.md`、`artifacts/accept-chaos.log`。UI 现场：停 Greptime 后 footer 显示「事件 108 · 已投递 0 · outbox 积压 108 · Greptime 断流（积压在 PG）」（`workbench-dark-chaos-backlog.png`），恢复后 `已投递 108 · 积压 0 · 在线`（`workbench-dark-chaos-drained.png`） | 通过 |
+| A-10 | chaos 三场景行为符合第 5 节，503 不产生脏数据，报告含 RPO/RTO | `./scripts/chaos.sh` 四场景全 PASS：kill-store RTO 48.6 s（60 条积压）、kill-db 18.9 s、secs-reconnect 5.3 s（spool 36/36）、restore-drill 91.9 s，RPO 全 0；`artifacts/accept-chaos.log`（本轮报告已被后续运行重写；长期报告见 `docs/chaos-report.md`，数字为另一次运行）。UI 现场：停 Greptime 后 footer 显示「事件 108 · 已投递 0 · outbox 积压 108 · Greptime 断流（积压在 PG）」（`workbench-dark-chaos-backlog.png`），恢复后 `已投递 108 · 积压 0 · 在线`（`workbench-dark-chaos-drained.png`） | 通过 |
 | A-11 | 减少动效后功能不减；三层下钻不依赖指针 | 「减少动效」只关闭 FOUP 插值；L0–L3/退回/复位均为按钮，可用键盘激活；`nsh test` 的演示与控制条测试不依赖坐标点击 | 通过（代码路径；未做逐键手动录屏） |
 | A-12 | 每个可见数值可追到来源并标口径 | 卡片右上角来源行 + `/api/analytics` 的 8 条 `notes`；KPI 卡逐条渲染公式；无合成指标 | 通过 |
 
@@ -85,7 +85,7 @@ Windows 由 CI 的 `desktop` 矩阵在 `windows-latest` 上执行，run `4427883
 | 5 | `./scripts/idempotency.sh` | 通过：两次重投 delta=0 | `artifacts/accept-idempotency.log` |
 | 6 | `./scripts/replay.sh` | 通过：四表行数与 SPC 均值 delta=0 | `artifacts/accept-replay.log` |
 | 7 | `./scripts/backup.sh && ./scripts/restore.sh` | 通过：隔离 PITR，lots=6 events=106，82.4 s | `artifacts/accept-backup.log`、`artifacts/accept-restore.log` |
-| 8 | `./scripts/chaos.sh` | 通过：四场景 RPO 0；RTO 48.6/18.9/5.3/91.9 s | `artifacts/accept-chaos.log`、`docs/chaos-report.md` |
+| 8 | `./scripts/chaos.sh` | 通过：四场景 RPO 0；RTO 48.6/18.9/5.3/91.9 s | `artifacts/accept-chaos.log` |
 | 9 | actionlint（`rhysd/actionlint` 容器）解析两个 workflow | 通过（SC2016 已按意图加 disable 注释） | 本记录 §1 的运行命令 |
 | 10 | README 章节与截图 | 通过：边界声明、命名、截图、架构、RPO/RTO、已知限制均在 | `README.md` |
 | 11 | `git grep -nE 'TODO\|unimplemented!\|todo!'`、密钥模式 | 通过：均为空 | `artifacts/accept-10-12-checks.log` |

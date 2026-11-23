@@ -231,14 +231,14 @@ Greptime 快照 import 到隔离实例后 `equipment_telemetry` 的行数。
 ## 故障注入实测（RPO / RTO）
 
 `scripts/chaos.sh` 每次运行都会重写 [docs/chaos-report.md](docs/chaos-report.md)，
-下面是本机一次真实运行的结果（三个数据面场景 + 一个 SECS 断链场景）：
+下面是该报告记录的一次真实运行（三个数据面场景 + 一个 SECS 断链场景）：
 
 | 场景 | 做了什么 | RPO（丢事件） | RTO（含重启） | 结论 |
 |---|---|---|---|---|
-| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（60 条事件积压在 outbox） | **48.6 s** | 恢复后自动追平，Lot 状态不丢 |
-| kill-db | 停 PostgreSQL 10 s | **0** | **18.9 s** | API 全程返回 503，恢复后把内存里那一批提交 |
-| secs-reconnect | 断开 HSMS 链路 5 s，产线继续 | **0**（断链期间 36 条 S6F11/S5F1 进入机台 spool） | **5.3 s** | 重连后 36 条全部补传，unsent=0 |
-| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **91.9 s** | 行数与 `max(created_at)` 与源库一致 |
+| kill-store | 停 GreptimeDB 30 s，产线继续 | **0**（62 条事件积压在 outbox） | **49.2 s** | 恢复后自动追平，Lot 状态不丢 |
+| kill-db | 停 PostgreSQL 10 s | **0** | **19.2 s** | API 全程返回 503，恢复后把内存里那一批提交 |
+| secs-reconnect | 断开 HSMS 链路 5 s，产线继续 | **0**（断链期间 37 条 S6F11/S5F1 进入机台 spool，共 187 条全部补传） | **5.5 s** | 重连后 unsent=0 |
+| restore-drill | 独立实例 PITR 到指定时刻 | **0**（到目标时刻） | **95.7 s** | 行数与 `max(created_at)` 与源库一致 |
 
 > **这是单机重启式恢复，不是自动 failover。** RTO 包含容器重启、WAL 恢复、
 > 投递追平的时间；档 B 用 Patroni + etcd 才能谈自动切换。
@@ -352,7 +352,7 @@ API 立刻返回 503，不写脏数据；引擎把还没提交的那一批事件
 - [ADR 008](docs/decisions/008-visual-direction.md) — 视觉方向与两套主题
 - [ADR 009](docs/decisions/009-postgres-18.md) — PostgreSQL 18 升级与 PITR 迁移路径
 - [ADR 010](docs/decisions/010-tsx-interface.md) — TSX 界面 + Rust 视口：热更新、边界与项目结构
-- [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`artifacts/` 下每次运行都会重写）
+- [docs/chaos-report.md](docs/chaos-report.md) — 最近一次故障注入报告（`scripts/chaos.sh` 每次运行都会重写，并复制到 `artifacts/` 供 CI 上传）
 
 ## 许可证
 

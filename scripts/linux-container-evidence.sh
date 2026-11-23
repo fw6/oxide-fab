@@ -8,7 +8,7 @@ docker run --rm --platform linux/arm64 \
   -v "$root:/src" -w /src \
   -e CARGO_TARGET_DIR=/tmp/oxide-target \
   -e OXIDE_API_URL \
-  ubuntu:24.04-arm64 bash -lc '
+  ubuntu:24.04 bash -lc '
     set -euo pipefail
     export DEBIAN_FRONTEND=noninteractive
     apt-get update
@@ -19,7 +19,7 @@ docker run --rm --platform linux/arm64 \
       fonts-noto-cjk
     curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.100.0 --profile minimal
     . "$HOME/.cargo/env"
-    export NSH_VERSION=v0.5.0
+    export NSH_VERSION=v0.6.1
     curl -fsSL https://nsh.dev/install.sh | sh
     export PATH="$HOME/.local/bin:$PATH"
     nsh --version

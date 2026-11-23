@@ -167,6 +167,9 @@ jobs:
           nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
 
       - name: GLB and manifest validation
+        # An explicit bash gets `-eo pipefail`, so a failing validation cannot
+        # hide behind a successful `tee`.
+        shell: bash
         run: ./scripts/validate-assets.sh | tee artifacts/assets-validation.log
 
       - name: Upload the nsh test report

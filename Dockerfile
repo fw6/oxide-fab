@@ -22,14 +22,18 @@ COPY crates/oxide-sim/Cargo.toml crates/oxide-sim/Cargo.toml
 COPY crates/oxide-secs/Cargo.toml crates/oxide-secs/Cargo.toml
 COPY crates/oxide-store/Cargo.toml crates/oxide-store/Cargo.toml
 COPY crates/oxide-api/Cargo.toml crates/oxide-api/Cargo.toml
+COPY crates/oxide-scene/Cargo.toml crates/oxide-scene/Cargo.toml
+COPY crates/oxide-render/Cargo.toml crates/oxide-render/Cargo.toml
 COPY bins/oxide-server/Cargo.toml bins/oxide-server/Cargo.toml
 RUN mkdir -p crates/oxide-core/src crates/oxide-sim/src crates/oxide-secs/src \
-             crates/oxide-store/src crates/oxide-api/src bins/oxide-server/src \
-    && for c in crates/oxide-core crates/oxide-sim crates/oxide-secs crates/oxide-store crates/oxide-api; do \
+             crates/oxide-store/src crates/oxide-api/src crates/oxide-scene/src \
+             crates/oxide-render/src bins/oxide-server/src \
+    && for c in crates/oxide-core crates/oxide-sim crates/oxide-secs crates/oxide-store \
+                crates/oxide-api crates/oxide-scene crates/oxide-render; do \
          echo "" > "$c/src/lib.rs"; \
        done \
     && echo "fn main() {}" > bins/oxide-server/src/main.rs \
-    && cargo build --release --target "$(cat /rust-target)" -p oxide-server || true
+    && cargo build --locked --release --target "$(cat /rust-target)" -p oxide-server || true
 
 COPY crates ./crates
 COPY bins ./bins
