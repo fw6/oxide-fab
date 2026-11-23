@@ -215,6 +215,20 @@ impl LotAggregate {
             .filter(|w| w.state != WaferState::Scrapped)
     }
 
+    /// Whether `wafer_id` is still in the lot and not scrapped.
+    #[must_use]
+    pub fn has_active_wafer(&self, wafer_id: &str) -> bool {
+        self.wafers
+            .iter()
+            .any(|w| w.id == wafer_id && w.state != WaferState::Scrapped)
+    }
+
+    /// A hold only ends by release or by the lot ending; every other transition
+    /// keeps it. This is the one predicate for that rule.
+    fn held(&self) -> bool {
+        self.lot.hold_reason.is_some()
+    }
+
     #[must_use]
     pub fn active_count(&self) -> usize {
         self.active_wafers().count()
@@ -266,6 +280,36 @@ impl LotAggregate {
         })
     }
 
+    /// Move a held lot to the step its finished material goes to next.
+    ///
+    /// `queue` refuses a held lot by contract, but a step that finishes while
+    /// the lot is held still has to record where the material now stands. The
+    /// event is `LotQueued` — the projection keeps `on_hold` and moves the step
+    /// — and the lot stays out of the queues until release.
+    pub fn advance_while_held(
+        &mut self,
+        step_no: i32,
+        ids: &mut EventIds,
+        now_ms: i64,
+        actor: &str,
+    ) -> Result<Transition, TransitionError> {
+        if !self.held() {
+            return Err(TransitionError::NotOnHold);
+        }
+        self.lot.current_step = step_no;
+        Ok(Transition {
+            events: vec![DomainEvent::new(
+                ids.next_id(),
+                self.lot.id.clone(),
+                EventKind::LotQueued,
+                lot_queued_payload(step_no),
+                now_ms,
+                actor,
+            )],
+            children: vec![],
+        })
+    }
+
     /// Stop the lot: no dispatch, no track-in, until released.
     pub fn hold(
         &mut self,
@@ -298,7 +342,12 @@ impl LotAggregate {
         })
     }
 
-    /// Release a held lot back into its current step.
+    /// Release a held lot back into dispatch at its current step.
+    ///
+    /// A lot held while its material is on a tool goes back to `Processing`:
+    /// the step finishes on its own and the next transition queues it. Any
+    /// other lot becomes `Queued` with its waiting wafers, which is what
+    /// `pick_lot` accepts.
     pub fn release(
         &mut self,
         ids: &mut EventIds,
@@ -309,10 +358,18 @@ impl LotAggregate {
             return Err(TransitionError::NotOnHold);
         }
         let reason = self.lot.hold_reason.take();
-        self.lot.state = LotState::Waiting;
+        let busy = self
+            .wafers
+            .iter()
+            .any(|w| w.state == WaferState::Processing);
+        self.lot.state = if busy {
+            LotState::Processing
+        } else {
+            LotState::Queued
+        };
         for wafer in &mut self.wafers {
-            if wafer.state == WaferState::Queued || wafer.state == WaferState::Waiting {
-                wafer.state = WaferState::Waiting;
+            if matches!(wafer.state, WaferState::Created | WaferState::Waiting) {
+                wafer.state = WaferState::Queued;
             }
         }
         Ok(Transition {
@@ -353,6 +410,7 @@ impl LotAggregate {
             });
         }
         let from_step = self.lot.current_step;
+        let held = self.held();
         for wafer in &mut self.wafers {
             if wafer.state != WaferState::Scrapped {
                 wafer.state = WaferState::Waiting;
@@ -361,7 +419,11 @@ impl LotAggregate {
         }
         // Everything from the rework target onwards has to be redone.
         self.completed.retain(|step, _| *step < to_step);
-        self.lot.state = LotState::Waiting;
+        self.lot.state = if held {
+            LotState::OnHold
+        } else {
+            LotState::Waiting
+        };
         self.lot.current_step = to_step;
         Ok(Transition {
             events: vec![DomainEvent::new(
@@ -505,7 +567,11 @@ impl LotAggregate {
             .wafers
             .iter()
             .any(|w| w.state == WaferState::Processing);
-        self.lot.state = if any_processing {
+        // A hold outlives the step it interrupted: the material finished, but
+        // the lot waits for a release before it is dispatched again.
+        self.lot.state = if self.held() {
+            LotState::OnHold
+        } else if any_processing {
             LotState::Processing
         } else {
             LotState::Waiting
@@ -556,6 +622,8 @@ impl LotAggregate {
                 wafer.state = WaferState::Done;
             }
         }
+        // The route is over: a hold has nothing left to hold.
+        self.lot.hold_reason = None;
         self.lot.state = LotState::Completed;
         Ok(Transition {
             events: vec![DomainEvent::new(
@@ -571,6 +639,10 @@ impl LotAggregate {
     }
 
     /// Scrap one wafer: the rest of the lot carries on (a partial lot).
+    ///
+    /// When the last active wafer goes, the lot is finished and the log records
+    /// `LotCompleted` alongside the scrap, so the projection and a replay see
+    /// the same terminal lot the engine does.
     pub fn scrap_wafer(
         &mut self,
         wafer_id: &str,
@@ -579,34 +651,43 @@ impl LotAggregate {
         now_ms: i64,
         actor: &str,
     ) -> Result<Transition, TransitionError> {
-        let wafer = self
-            .wafers
-            .iter_mut()
-            .find(|w| w.id == wafer_id)
-            .ok_or_else(|| TransitionError::UnknownWafer(wafer_id.to_owned()))?;
-        if wafer.state == WaferState::Scrapped {
-            return Ok(Transition::default());
-        }
-        wafer.state = WaferState::Scrapped;
-        wafer.defect_info = Some(reason.to_owned());
-        let remaining = self
+        let found = self
             .wafers
             .iter()
-            .filter(|w| w.state != WaferState::Scrapped)
-            .count();
-        if remaining == 0 {
-            self.lot.state = LotState::Completed;
+            .position(|w| w.id == wafer_id)
+            .ok_or_else(|| TransitionError::UnknownWafer(wafer_id.to_owned()))?;
+        if self.wafers[found].state == WaferState::Scrapped {
+            return Ok(Transition::default());
         }
-        Ok(Transition {
-            events: vec![DomainEvent::new(
+        let wafer = &mut self.wafers[found];
+        wafer.state = WaferState::Scrapped;
+        wafer.defect_info = Some(reason.to_owned());
+        let step_no = self.lot.current_step;
+        let mut events = vec![
+            DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
                 EventKind::WaferScrapped,
-                json!({ "wafer_id": wafer_id, "reason": reason, "step_no": self.lot.current_step }),
+                json!({ "wafer_id": wafer_id, "reason": reason, "step_no": step_no }),
                 now_ms,
                 actor,
             )
-            .with_wafer(wafer_id)],
+            .with_wafer(wafer_id),
+        ];
+        if self.active_count() == 0 {
+            self.lot.hold_reason = None;
+            self.lot.state = LotState::Completed;
+            events.push(DomainEvent::new(
+                ids.next_id(),
+                self.lot.id.clone(),
+                EventKind::LotCompleted,
+                json!({ "step_no": step_no }),
+                now_ms,
+                actor,
+            ));
+        }
+        Ok(Transition {
+            events,
             children: vec![],
         })
     }
@@ -709,6 +790,7 @@ impl LotAggregate {
         );
         self.wafers.clear();
         self.lot.wafer_count = 0;
+        self.lot.hold_reason = None;
         self.lot.state = LotState::Split;
         Ok(Transition {
             events: vec![event],
@@ -772,7 +854,11 @@ impl LotAggregate {
                 self.wafers.push(wafer.clone());
             }
             source.lot.state = LotState::Merged;
+            source.lot.hold_reason = None;
             source.lot.wafer_count = 0;
+            // The moved wafers live in the target now; a source that kept them
+            // would show duplicated material until a replay corrected it.
+            source.wafers.clear();
             events.push(DomainEvent::new(
                 ids.next_id(),
                 source.lot.id.clone(),
@@ -788,6 +874,7 @@ impl LotAggregate {
             ));
         }
         self.lot.wafer_count = self.wafers.len() as i32;
+        self.lot.hold_reason = None;
         self.lot.state = LotState::Waiting;
         Ok(Transition {
             events,
@@ -1169,6 +1256,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(source.lot.state, LotState::Merged);
+        assert!(
+            source.wafers.is_empty(),
+            "the moved wafers live in the target, not in both"
+        );
         assert_eq!(target.lot.wafer_count, 10);
         assert_eq!(target.wafers.len(), 10);
         let slots: Vec<i32> = target.wafers.iter().map(|w| w.slot).collect();
@@ -1231,10 +1322,66 @@ mod tests {
 
         let released = lot.release(&mut ids(), 12, "operator").unwrap();
         assert_eq!(released.events[0].kind, EventKind::LotReleased);
-        assert_eq!(lot.lot.state, LotState::Waiting);
+        assert_eq!(lot.lot.state, LotState::Queued);
         assert!(lot.lot.hold_reason.is_none());
+        assert!(lot.wafers.iter().all(|w| w.state == WaferState::Queued));
         lot.queue(1, &mut ids(), 13, "dispatcher").unwrap();
         assert_eq!(lot.lot.state, LotState::Queued);
+    }
+
+    #[test]
+    fn a_hold_survives_the_step_it_interrupted() {
+        let mut lot = agg("LOT-0006", 2);
+        let wafers = wafer_ids(&lot);
+        verified(&mut lot);
+        track_in(&mut lot, "CLN-01", &wafers, 1).unwrap();
+        lot.hold("engineer review", &mut ids(), 2, "operator")
+            .unwrap();
+
+        track_out(&mut lot, "CLN-01", &wafers, 3).unwrap();
+        assert_eq!(lot.lot.state, LotState::OnHold);
+        assert_eq!(lot.lot.hold_reason.as_deref(), Some("engineer review"));
+
+        // The next step is recorded, but the lot is not queued while held.
+        let advanced = lot.advance_while_held(2, &mut ids(), 4, "mes").unwrap();
+        assert_eq!(advanced.events[0].kind, EventKind::LotQueued);
+        assert_eq!(lot.lot.current_step, 2);
+        assert_eq!(lot.lot.state, LotState::OnHold);
+
+        lot.release(&mut ids(), 5, "operator").unwrap();
+        assert_eq!(lot.lot.state, LotState::Queued);
+        assert_eq!(lot.lot.current_step, 2);
+        assert!(lot.wafers.iter().all(|w| w.state == WaferState::Queued));
+    }
+
+    #[test]
+    fn scrapping_the_last_wafer_completes_the_lot_in_the_log() {
+        let mut lot = agg("LOT-0007", 2);
+        let wafers = wafer_ids(&lot);
+        let mut ids = ids();
+
+        let first = lot
+            .scrap_wafer(&wafers[0], "scratch", &mut ids, 10, "engineer")
+            .unwrap();
+        assert_eq!(first.events[0].kind, EventKind::WaferScrapped);
+        assert_eq!(lot.lot.state, LotState::Queued);
+
+        let last = lot
+            .scrap_wafer(&wafers[1], "scratch", &mut ids, 11, "engineer")
+            .unwrap();
+        let kinds: Vec<EventKind> = last.events.iter().map(|event| event.kind).collect();
+        assert_eq!(
+            kinds,
+            vec![EventKind::WaferScrapped, EventKind::LotCompleted]
+        );
+        assert_eq!(lot.lot.state, LotState::Completed);
+        assert!(lot.lot.hold_reason.is_none());
+
+        // A retry on the same wafer changes nothing and writes nothing.
+        let retry = lot
+            .scrap_wafer(&wafers[1], "again", &mut ids, 12, "engineer")
+            .unwrap();
+        assert_eq!(retry.events.len(), 0);
     }
 
     #[test]

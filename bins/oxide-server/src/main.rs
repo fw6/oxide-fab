@@ -201,25 +201,34 @@ async fn ensure_greptime(greptime: &GreptimeDb) {
 
 /// Resume from `snapshot + events after it`, or start a new fab.
 async fn restore_simulation(store: &PgStore, scenario: &Scenario) -> Result<(Simulation, String)> {
-    match store.load_snapshot("fab").await? {
-        Some(snapshot) => {
-            let state: oxide_sim::SimState = serde_json::from_value(snapshot.state)
-                .context("snapshot state does not match SimState")?;
-            let mut sim = Simulation::from_state(scenario.clone(), state)?;
-            let events = store.events_since(snapshot.last_seq, 100_000).await?;
-            sim.advance_seq(snapshot.last_seq);
-            for persisted in &events {
-                sim.apply_event(&persisted.event);
-                sim.advance_seq(persisted.seq);
-            }
-            sim.rebuild_heap();
-            Ok((
-                sim,
-                format!("snapshot@{} + {} events", snapshot.last_seq, events.len()),
-            ))
+    let Some(snapshot) = store.load_snapshot("fab").await? else {
+        // A new simulation reuses event ids from the start of its counter.
+        // Starting one on top of a non-empty log would make every insert a
+        // no-op while the engine kept ticking, so the UI and PostgreSQL would
+        // describe different runs.
+        let max_seq = store.max_seq().await?;
+        if max_seq > 0 {
+            anyhow::bail!(
+                "the event log has {max_seq} events but no snapshot; \
+                 reset the demo before starting a new fab"
+            );
         }
-        None => Ok((Simulation::new(scenario.clone())?, "fresh".to_owned())),
+        return Ok((Simulation::new(scenario.clone())?, "fresh".to_owned()));
+    };
+    let state: oxide_sim::SimState =
+        serde_json::from_value(snapshot.state).context("snapshot state does not match SimState")?;
+    let mut sim = Simulation::from_state(scenario.clone(), state)?;
+    let events = store.events_since(snapshot.last_seq, 100_000).await?;
+    sim.advance_seq(snapshot.last_seq);
+    for persisted in &events {
+        sim.apply_event(&persisted.event);
+        sim.advance_seq(persisted.seq);
     }
+    sim.rebuild_heap();
+    Ok((
+        sim,
+        format!("snapshot@{} + {} events", snapshot.last_seq, events.len()),
+    ))
 }
 
 fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) {
@@ -318,31 +327,7 @@ fn spawn_simulator(state: Shared, shutdown: tokio::sync::watch::Receiver<bool>) 
 }
 
 fn forward_secs(state: &Shared, triggers: Vec<SecsTrigger>) {
-    let Some(handle) = &state.secs else { return };
-    for trigger in triggers {
-        match trigger {
-            SecsTrigger::RecipeUpload {
-                recipe_id,
-                checksum,
-                body,
-            } => handle.upload_recipe(&recipe_id, &checksum, &body),
-            SecsTrigger::ProcessStarted {
-                lot_id,
-                step_no,
-                equipment_id,
-            } => handle.process_started(&lot_id, step_no, &equipment_id),
-            SecsTrigger::ProcessCompleted {
-                lot_id,
-                step_no,
-                equipment_id,
-            } => handle.process_completed(&lot_id, step_no, &equipment_id),
-            SecsTrigger::Alarm {
-                equipment_id,
-                alid,
-                text,
-            } => handle.alarm(&equipment_id, alid, &text),
-        }
-    }
+    oxide_api::handlers::forward_secs(state.secs.as_deref(), triggers);
 }
 
 async fn save_snapshot(state: &Shared) {

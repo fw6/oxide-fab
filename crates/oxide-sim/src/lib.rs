@@ -401,6 +401,17 @@ impl Simulation {
         self.tick(tick)
     }
 
+    /// One tick while paused: the operator's single step.
+    ///
+    /// `tick` does nothing unless the line runs, so this releases the guard for
+    /// the duration of one tick and leaves the line paused afterwards.
+    pub fn force_step(&mut self) -> TickOutput {
+        self.state.running = true;
+        let output = self.step();
+        self.state.running = false;
+        output
+    }
+
     /// Put back on the heap whatever the restored state implies.
     pub fn rebuild_heap(&mut self) {
         self.heap.clear();
@@ -519,19 +530,23 @@ impl Simulation {
                     if let Some(step) = event.step_no() {
                         aggregate.lot.current_step = step;
                     }
-                    if !aggregate
-                        .wafers
-                        .iter()
-                        .any(|w| w.state == WaferState::Processing)
-                    {
-                        aggregate.lot.state = LotState::Queued;
-                    }
-                    for wafer in &mut aggregate.wafers {
-                        if matches!(
-                            wafer.state,
-                            WaferState::Created | WaferState::Waiting | WaferState::Queued
-                        ) {
-                            wafer.state = WaferState::Queued;
+                    // A held lot advances its step but stays held and out of
+                    // the queues until release (the same rule as `queue`).
+                    if aggregate.lot.hold_reason.is_none() {
+                        if !aggregate
+                            .wafers
+                            .iter()
+                            .any(|w| w.state == WaferState::Processing)
+                        {
+                            aggregate.lot.state = LotState::Queued;
+                        }
+                        for wafer in &mut aggregate.wafers {
+                            if matches!(
+                                wafer.state,
+                                WaferState::Created | WaferState::Waiting | WaferState::Queued
+                            ) {
+                                wafer.state = WaferState::Queued;
+                            }
                         }
                     }
                 }
@@ -594,7 +609,9 @@ impl Simulation {
                             done.push(id);
                         }
                     }
-                    aggregate.lot.state = if aggregate
+                    aggregate.lot.state = if aggregate.lot.hold_reason.is_some() {
+                        LotState::OnHold
+                    } else if aggregate
                         .wafers
                         .iter()
                         .any(|w| w.state == WaferState::Processing)
@@ -618,6 +635,7 @@ impl Simulation {
                             wafer.state = WaferState::Done;
                         }
                     }
+                    aggregate.lot.hold_reason = None;
                     aggregate.lot.state = LotState::Completed;
                 }
             }
@@ -633,8 +651,21 @@ impl Simulation {
             }
             EventKind::LotReleased => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate.lot.state = LotState::Waiting;
+                    let busy = aggregate
+                        .wafers
+                        .iter()
+                        .any(|w| w.state == WaferState::Processing);
+                    aggregate.lot.state = if busy {
+                        LotState::Processing
+                    } else {
+                        LotState::Queued
+                    };
                     aggregate.lot.hold_reason = None;
+                    for wafer in &mut aggregate.wafers {
+                        if matches!(wafer.state, WaferState::Created | WaferState::Waiting) {
+                            wafer.state = WaferState::Queued;
+                        }
+                    }
                 }
             }
             EventKind::ReworkStarted => {
@@ -645,7 +676,9 @@ impl Simulation {
                     .unwrap_or(0) as i32;
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     aggregate.lot.current_step = to_step;
-                    aggregate.lot.state = LotState::Waiting;
+                    if aggregate.lot.hold_reason.is_none() {
+                        aggregate.lot.state = LotState::Waiting;
+                    }
                     aggregate.completed.retain(|step, _| *step < to_step);
                     for wafer in &mut aggregate.wafers {
                         if wafer.state != WaferState::Scrapped {
@@ -702,6 +735,7 @@ impl Simulation {
                 if let Some(parent) = self.state.lots.get_mut(&event.lot_id) {
                     parent.wafers.clear();
                     parent.lot.wafer_count = 0;
+                    parent.lot.hold_reason = None;
                     parent.lot.state = LotState::Split;
                 }
                 for child in children {
@@ -768,6 +802,7 @@ impl Simulation {
                         .collect();
                     source.wafers.retain(|w| !moved.contains(&w.id));
                     source.lot.state = LotState::Merged;
+                    source.lot.hold_reason = None;
                     source.lot.wafer_count = 0;
                 }
                 if let Some(target) = self.state.lots.get_mut(&target_id) {
@@ -778,6 +813,9 @@ impl Simulation {
                         target.wafers.push(wafer);
                     }
                     target.lot.wafer_count = target.wafers.len() as i32;
+                    // The merge itself releases the target, exactly as `merge` does.
+                    target.lot.hold_reason = None;
+                    target.lot.state = LotState::Waiting;
                 }
             }
             EventKind::EquipmentDown => {
@@ -893,6 +931,9 @@ impl Simulation {
         wafers: &[WaferId],
         output: &mut TickOutput,
     ) {
+        // The physical step finished. Free the tool first: a refused transition
+        // must not leave a busy tool whose timer has already expired.
+        self.release_equipment(equipment_id);
         let Some(step) = self.route.step(step_no).cloned() else {
             return;
         };
@@ -907,6 +948,19 @@ impl Simulation {
         } else {
             None
         };
+        // A wafer scrapped while the tool ran is not part of the report: it
+        // left the lot, and naming it would make the whole report invalid.
+        let active: Vec<WaferId> = match self.state.lots.get(lot_id) {
+            Some(aggregate) => wafers
+                .iter()
+                .filter(|id| aggregate.has_active_wafer(id))
+                .cloned()
+                .collect(),
+            None => return,
+        };
+        if active.is_empty() {
+            return;
+        }
         let mut ids = self.ids_base();
         let Some(aggregate) = self.state.lots.get_mut(lot_id) else {
             return;
@@ -917,7 +971,7 @@ impl Simulation {
                 equipment_id,
                 recipe_id: &step.recipe_id,
                 recipe_checksum: &checksum,
-                wafers,
+                wafers: &active,
                 duration_ms,
                 measured,
             },
@@ -944,18 +998,27 @@ impl Simulation {
                 return;
             }
         }
-        if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
-            runtime.equipment.state = EquipmentState::Idle;
-            runtime.busy_lot = None;
-            runtime.busy_wafers.clear();
-            runtime.busy_until_ms = 0;
-            runtime.lots_processed += 1;
-        }
+        let held = self
+            .state
+            .lots
+            .get(lot_id)
+            .is_some_and(|aggregate| aggregate.lot.hold_reason.is_some());
         let all_done = self
             .state
             .lots
             .get(lot_id)
             .is_some_and(|aggregate| aggregate.step_finished(step_no));
+        if held {
+            // The hold survives the step: record where the material now stands
+            // and leave the lot out of the queues until an operator releases it.
+            if all_done {
+                match self.route.next_step(step_no) {
+                    Some(next) => self.advance_while_held(lot_id, next, output),
+                    None => self.finish_lot(lot_id, step_no, output),
+                }
+            }
+            return;
+        }
         if !all_done {
             self.enqueue_at(lot_id, step_no, output);
             return;
@@ -963,6 +1026,38 @@ impl Simulation {
         match self.route.next_step(step_no) {
             Some(next) => self.enqueue_at(lot_id, next, output),
             None => self.finish_lot(lot_id, step_no, output),
+        }
+    }
+
+    /// A tool whose step finished is idle again, whatever the log does with it.
+    fn release_equipment(&mut self, equipment_id: &str) {
+        if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
+            runtime.equipment.state = EquipmentState::Idle;
+            runtime.busy_lot = None;
+            runtime.busy_wafers.clear();
+            runtime.busy_until_ms = 0;
+            runtime.lots_processed += 1;
+        }
+    }
+
+    /// Record the next step of a held lot without queuing it.
+    fn advance_while_held(&mut self, lot_id: &str, step_no: i32, output: &mut TickOutput) {
+        let now_ms = self.state.now_ms;
+        let mut ids = self.ids_base();
+        let advanced = self
+            .state
+            .lots
+            .get_mut(lot_id)
+            .map(|aggregate| aggregate.advance_while_held(step_no, &mut ids, now_ms, "mes"));
+        match advanced {
+            Some(Ok(transition)) => {
+                self.advance_counter(ids.used());
+                output.events.extend(transition.events);
+            }
+            Some(Err(error)) => {
+                tracing::warn!(%error, lot = lot_id, step = step_no, "held advance refused");
+            }
+            None => {}
         }
     }
 
@@ -1571,17 +1666,25 @@ impl Simulation {
     pub fn release_lot(&mut self, lot_id: &str) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let (events, step) = {
+        let (events, step, busy) = {
             let aggregate = self.aggregate_mut(lot_id)?;
             let transition = aggregate.release(&mut ids, now_ms, "operator")?;
-            (transition.events, aggregate.lot.current_step)
+            (
+                transition.events,
+                aggregate.lot.current_step,
+                aggregate.lot.state == LotState::Processing,
+            )
         };
         self.advance_counter(ids.used());
-        self.state
-            .queues
-            .entry(step)
-            .or_default()
-            .push_back(lot_id.to_owned());
+        // Material still on a tool is not queued: the step finishes on its own
+        // and queues the lot at the next step.
+        if !busy {
+            self.state
+                .queues
+                .entry(step)
+                .or_default()
+                .push_back(lot_id.to_owned());
+        }
         Ok(events)
     }
 
@@ -1593,17 +1696,22 @@ impl Simulation {
     ) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let events = self
-            .aggregate_mut(lot_id)?
-            .rework(to_step, reason, &mut ids, now_ms, "engineer")?
-            .events;
+        let (events, held) = {
+            let aggregate = self.aggregate_mut(lot_id)?;
+            let transition = aggregate.rework(to_step, reason, &mut ids, now_ms, "engineer")?;
+            (transition.events, aggregate.lot.hold_reason.is_some())
+        };
         self.advance_counter(ids.used());
         self.remove_from_queues(lot_id);
-        self.state
-            .queues
-            .entry(to_step)
-            .or_default()
-            .push_back(lot_id.to_owned());
+        // A reworked lot that is still on hold waits for release, like any
+        // other held lot.
+        if !held {
+            self.state
+                .queues
+                .entry(to_step)
+                .or_default()
+                .push_back(lot_id.to_owned());
+        }
         Ok(events)
     }
 
@@ -1615,11 +1723,16 @@ impl Simulation {
     ) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let events = self
-            .aggregate_mut(lot_id)?
-            .scrap_wafer(wafer_id, reason, &mut ids, now_ms, "engineer")?
-            .events;
+        let (events, terminal) = {
+            let aggregate = self.aggregate_mut(lot_id)?;
+            let transition =
+                aggregate.scrap_wafer(wafer_id, reason, &mut ids, now_ms, "engineer")?;
+            (transition.events, aggregate.lot.state.is_terminal())
+        };
         self.advance_counter(ids.used());
+        if terminal {
+            self.remove_from_queues(lot_id);
+        }
         Ok(events)
     }
 
@@ -1997,5 +2110,169 @@ mod tests {
             sim.state.lots[&lot_id].lot.state,
             LotState::Completed | LotState::Processing | LotState::Waiting | LotState::Queued
         ));
+    }
+
+    /// A tool that is mid-step, with the lot and one of its wafers.
+    fn find_running(sim: &Simulation) -> Option<(String, String, i64, String)> {
+        sim.state.equipment.iter().find_map(|(id, runtime)| {
+            if runtime.equipment.state != EquipmentState::Running {
+                return None;
+            }
+            let lot = runtime.busy_lot.clone()?;
+            let wafer = runtime.busy_wafers.first().cloned()?;
+            Some((id.clone(), lot, runtime.busy_until_ms, wafer))
+        })
+    }
+
+    #[test]
+    fn scrapping_a_wafer_mid_step_does_not_freeze_the_tool() {
+        let mut sim = Simulation::new(scenario()).unwrap();
+        let mut events = Vec::new();
+        let mut busy = None;
+        for _ in 0..200 {
+            events.extend(sim.tick(100).events);
+            if let Some(found) = find_running(&sim) {
+                busy = Some(found);
+                break;
+            }
+        }
+        let (equipment_id, lot_id, busy_until, wafer) = busy.expect("a tool loaded a lot");
+        let step = sim.state.lots[&lot_id].lot.current_step;
+        sim.scrap_wafer(&lot_id, &wafer, "test scrap").unwrap();
+        while sim.state.now_ms <= busy_until {
+            events.extend(sim.tick(100).events);
+        }
+
+        let runtime = &sim.state.equipment[&equipment_id];
+        if runtime.equipment.state == EquipmentState::Running {
+            assert!(
+                runtime.busy_until_ms > sim.state.now_ms,
+                "{equipment_id} kept an expired step"
+            );
+        }
+        assert!(runtime.lots_processed >= 1, "the finished step was counted");
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == EventKind::TrackOut && event.lot_id == lot_id),
+            "the step still tracked out"
+        );
+        let aggregate = &sim.state.lots[&lot_id];
+        assert!(
+            aggregate.lot.current_step > step || aggregate.lot.state == LotState::Completed,
+            "the lot moved on: {:?} at step {}",
+            aggregate.lot.state,
+            aggregate.lot.current_step
+        );
+    }
+
+    #[test]
+    fn a_single_step_advances_the_paused_line() {
+        let mut sim = Simulation::new(scenario()).unwrap();
+        sim.set_running(false);
+        let before = sim.state.now_ms;
+        assert!(sim.step().events.is_empty(), "a paused tick does nothing");
+        let output = sim.force_step();
+        assert!(sim.state.now_ms > before, "the clock advanced");
+        assert!(!sim.state.running, "the line is still paused");
+        assert!(
+            !output.events.is_empty(),
+            "the released lot was written to the log"
+        );
+    }
+
+    #[test]
+    fn a_hold_during_processing_survives_the_step_and_release_dispatches_it() {
+        let mut sim = Simulation::new(scenario()).unwrap();
+        let mut busy = None;
+        for _ in 0..200 {
+            sim.tick(100);
+            if let Some(found) = find_running(&sim) {
+                busy = Some(found);
+                break;
+            }
+        }
+        let (_equipment, lot_id, busy_until, _wafer) = busy.expect("a tool loaded a lot");
+        let step = sim.state.lots[&lot_id].lot.current_step;
+        sim.hold_lot(&lot_id, "engineer review").unwrap();
+        assert!(
+            !sim.state
+                .queues
+                .values()
+                .any(|queue| queue.iter().any(|id| *id == lot_id))
+        );
+
+        while sim.state.now_ms <= busy_until {
+            sim.tick(100);
+        }
+        let aggregate = &sim.state.lots[&lot_id];
+        assert_eq!(
+            aggregate.lot.state,
+            LotState::OnHold,
+            "the hold survives the step"
+        );
+        assert!(
+            aggregate.lot.current_step > step,
+            "the log moved the lot to the next step"
+        );
+        assert!(
+            !sim.state
+                .queues
+                .values()
+                .any(|queue| queue.iter().any(|id| *id == lot_id))
+        );
+
+        sim.release_lot(&lot_id).unwrap();
+        let step = sim.state.lots[&lot_id].lot.current_step;
+        assert!(
+            sim.state
+                .queues
+                .get(&step)
+                .is_some_and(|queue| queue.iter().any(|id| *id == lot_id)),
+            "release puts the lot back in the queue"
+        );
+        let mut loaded = false;
+        for _ in 0..200 {
+            let output = sim.tick(100);
+            if output
+                .events
+                .iter()
+                .any(|event| event.kind == EventKind::TrackIn && event.lot_id == lot_id)
+            {
+                loaded = true;
+                break;
+            }
+        }
+        assert!(loaded, "a released lot is dispatched again");
+    }
+
+    #[test]
+    fn scrapping_every_wafer_completes_the_lot_and_removes_it_from_the_queue() {
+        let mut sim = queued_sim(&[(1, 5)]);
+        let lot_id = "LOT-0001".to_owned();
+        let wafers: Vec<String> = sim.state.lots[&lot_id]
+            .wafers
+            .iter()
+            .map(|wafer| wafer.id.clone())
+            .collect();
+        let mut events = Vec::new();
+        for wafer in &wafers {
+            events.extend(
+                sim.scrap_wafer(&lot_id, wafer, "quality disposition")
+                    .unwrap(),
+            );
+        }
+        assert_eq!(sim.state.lots[&lot_id].lot.state, LotState::Completed);
+        assert!(
+            events
+                .iter()
+                .any(|event| event.kind == EventKind::LotCompleted)
+        );
+        assert!(
+            !sim.state
+                .queues
+                .values()
+                .any(|queue| queue.iter().any(|id| id == &lot_id))
+        );
     }
 }

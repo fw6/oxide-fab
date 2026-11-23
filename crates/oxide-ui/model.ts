@@ -474,12 +474,24 @@ export function noteSteps(
   const out: StepSince = { ...steps };
   for (const lot of next) {
     const before = previous.find((old) => old.id === lot.id);
-    if (before === undefined || before.current_step !== lot.current_step) {
+    // The first sight of a lot is not a step change: stamping it would put
+    // every FOUP in transit on launch and on hot reload.
+    if (before !== undefined && before.current_step !== lot.current_step) {
       out[lot.id] = [lot.current_step, nowMs];
       changed = true;
     }
   }
   return { steps: out, changed };
+}
+
+/** The simulation clock between snapshots.
+ *
+ * The snapshot is the truth; this extends its `sim_ms` by the wall time since
+ * it arrived, scaled by the sim speed, so the header clock and the FOUP transit
+ * move between polls. `atWall` is `Date.now()`.
+ */
+export function liveNow(simMs: number, wallMs: number, speed: number, atWall: number): number {
+  return simMs + Math.max(0, Math.round((atWall - wallMs) * speed));
 }
 
 /** Folds one event page into the lot and tool projections.
@@ -533,7 +545,8 @@ export function applyEvent(lots: LotView[], tools: ToolView[], event: Event): bo
       for (const wafer of lot.wafers) {
         if (wafers.includes(wafer.id)) wafer.state = "waiting";
       }
-      lot.state = "waiting";
+      // A hold outlives the step it interrupted.
+      if (lot.hold_reason === null) lot.state = "waiting";
       const tool = tools.find((candidate) => candidate.id === equipmentId);
       if (tool !== undefined) {
         tool.state = "idle";
@@ -546,13 +559,14 @@ export function applyEvent(lots: LotView[], tools: ToolView[], event: Event): bo
     }
     case "lot_queued": {
       if (lot === undefined) return false;
-      lot.state = "queued";
+      if (lot.state !== "on_hold") lot.state = "queued";
       if (stepNo !== undefined) lot.current_step = stepNo;
       return true;
     }
     case "lot_completed": {
       if (lot === undefined) return false;
       lot.state = "completed";
+      lot.hold_reason = null;
       lot.done_wafers = lot.wafer_count;
       for (const wafer of lot.wafers) {
         if (wafer.state !== "scrapped") wafer.state = "done";
@@ -567,13 +581,17 @@ export function applyEvent(lots: LotView[], tools: ToolView[], event: Event): bo
     }
     case "lot_released": {
       if (lot === undefined) return false;
-      lot.state = "waiting";
+      const busy = lot.wafers.some((wafer) => wafer.state === "processing");
+      lot.state = busy ? "processing" : "queued";
       lot.hold_reason = null;
+      for (const wafer of lot.wafers) {
+        if (wafer.state === "created" || wafer.state === "waiting") wafer.state = "queued";
+      }
       return true;
     }
     case "rework_started": {
       if (lot === undefined) return false;
-      lot.state = "waiting";
+      if (lot.hold_reason === null) lot.state = "waiting";
       if (stepNo !== undefined) lot.current_step = stepNo;
       for (const wafer of lot.wafers) {
         if (wafer.state !== "scrapped") {

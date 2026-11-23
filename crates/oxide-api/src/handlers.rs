@@ -14,7 +14,8 @@ use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use oxide_core::events::DomainEvent;
-use oxide_sim::{SimError, Simulation};
+use oxide_secs::SecsHandle;
+use oxide_sim::{SecsTrigger, SimError, Simulation};
 use oxide_store::outbox::{ReplayReport, replay as replay_events};
 use oxide_store::{DbCounts, OutboxStats};
 use serde::Deserialize;
@@ -572,16 +573,56 @@ pub async fn pause(State(state): State<Shared>) -> Result<Json<Value>, ApiError>
 }
 
 pub async fn step(State(state): State<Shared>) -> Result<Json<ActionResponse>, ApiError> {
-    let (count, last_seq) = commit_decision(&state, |sim| {
-        sim.set_running(false);
-        Ok(sim.step().events)
-    })
-    .await?;
+    let mut triggers = Vec::new();
+    let (count, last_seq) = {
+        let triggers = &mut triggers;
+        commit_decision(&state, |sim| {
+            // `force_step` runs the tick the pause would otherwise skip and
+            // leaves the line paused afterwards.
+            let output = sim.force_step();
+            *triggers = output.secs;
+            Ok(output.events)
+        })
+        .await?
+    };
+    forward_secs(state.secs.as_deref(), triggers);
     Ok(Json(ActionResponse {
         events: count,
         last_seq,
         message: "one simulation tick".to_owned(),
     }))
+}
+
+/// Send the simulator's SECS triggers to the host, if one is running.
+///
+/// The simulator loop and the single-step endpoint both produce triggers; a
+/// manual tick must not drop them.
+pub fn forward_secs(secs: Option<&SecsHandle>, triggers: Vec<SecsTrigger>) {
+    let Some(handle) = secs else { return };
+    for trigger in triggers {
+        match trigger {
+            SecsTrigger::RecipeUpload {
+                recipe_id,
+                checksum,
+                body,
+            } => handle.upload_recipe(&recipe_id, &checksum, &body),
+            SecsTrigger::ProcessStarted {
+                lot_id,
+                step_no,
+                equipment_id,
+            } => handle.process_started(&lot_id, step_no, &equipment_id),
+            SecsTrigger::ProcessCompleted {
+                lot_id,
+                step_no,
+                equipment_id,
+            } => handle.process_completed(&lot_id, step_no, &equipment_id),
+            SecsTrigger::Alarm {
+                equipment_id,
+                alid,
+                text,
+            } => handle.alarm(&equipment_id, alid, &text),
+        }
+    }
 }
 
 pub async fn set_speed(

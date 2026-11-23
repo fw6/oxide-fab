@@ -157,6 +157,10 @@ impl GreptimeDb {
             self.execute(&format!("TRUNCATE TABLE {}", table.as_str()))
                 .await?;
         }
+        // The flow's sink is derived from `spc_sample` but lives on its own
+        // TTL. Empty it too, or the chart keeps showing the previous run's
+        // buckets after a reset or replay.
+        self.execute("TRUNCATE TABLE spc_downsample").await?;
         Ok(())
     }
 

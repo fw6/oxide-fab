@@ -323,6 +323,32 @@ impl PgStore {
         rows.into_iter().map(event_from_row).collect()
     }
 
+    /// The events of the lot and of every lot it was split from, in log order.
+    ///
+    /// A split keeps the wafer ids but starts a new lot, so the steps a child
+    /// ran before the split are recorded under the parent's `lot_id`. The
+    /// genealogy must include them; the lot's own event list must not, which is
+    /// why this is a second query rather than a wider [`Self::events_for_lot`].
+    async fn events_for_lineage(&self, lot_id: &str) -> Result<Vec<PersistedEvent>> {
+        let rows = sqlx::query_as::<_, EventColumns>(
+            "WITH RECURSIVE lineage(id) AS (
+                 SELECT $1::text
+                 UNION
+                 SELECT lot.parent_lot_id
+                 FROM lot JOIN lineage ON lot.id = lineage.id
+                 WHERE lot.parent_lot_id IS NOT NULL
+             )
+             SELECT e.seq, e.event_id, e.lot_id, e.wafer_id, e.kind, e.payload,
+                    e.occurred_at_ms, e.actor
+             FROM lot_event e JOIN lineage ON lineage.id = e.lot_id
+             ORDER BY e.seq",
+        )
+        .bind(lot_id)
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter().map(event_from_row).collect()
+    }
+
     pub async fn all_events(&self) -> Result<Vec<PersistedEvent>> {
         let rows = sqlx::query_as::<_, EventColumns>(
             "SELECT seq, event_id, lot_id, wafer_id, kind, payload, occurred_at_ms, actor
@@ -440,9 +466,13 @@ impl PgStore {
             .map(wafer_from_row)
             .collect::<Result<Vec<_>>>()?;
         let events = self.events_for_lot(lot_id).await?;
+        let lineage = self.events_for_lineage(lot_id).await?;
         let genealogy = genealogy_for(
             &loaded,
-            &events.iter().map(|e| e.event.clone()).collect::<Vec<_>>(),
+            &lineage
+                .iter()
+                .map(|event| event.event.clone())
+                .collect::<Vec<_>>(),
         );
         Ok(Some(LotGenealogy {
             lot: lot_from_row(lot_row)?,
@@ -703,7 +733,8 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .await?;
             sqlx::query(
                 "UPDATE wafer SET state = 'queued'
-                 WHERE lot_id = $1 AND state IN ('created','waiting','queued')",
+                 WHERE lot_id = $1 AND state IN ('created','waiting','queued')
+                   AND (SELECT state FROM lot WHERE id = $1) <> 'on_hold'",
             )
             .bind(&event.lot_id)
             .execute(&mut **tx)
@@ -746,7 +777,7 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .bind(&event.lot_id)
             .execute(&mut **tx)
             .await?;
-            sqlx::query("UPDATE lot SET state = 'completed' WHERE id = $1")
+            sqlx::query("UPDATE lot SET state = 'completed', hold_reason = NULL WHERE id = $1")
                 .bind(&event.lot_id)
                 .execute(&mut **tx)
                 .await?;
@@ -759,10 +790,23 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .await?;
         }
         EventKind::LotReleased => {
-            sqlx::query("UPDATE lot SET state = 'waiting', hold_reason = NULL WHERE id = $1")
-                .bind(&event.lot_id)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query(
+                "UPDATE lot SET state = CASE
+                     WHEN EXISTS (SELECT 1 FROM wafer WHERE lot_id = $1 AND state = 'processing')
+                     THEN 'processing' ELSE 'queued' END,
+                 hold_reason = NULL
+                 WHERE id = $1",
+            )
+            .bind(&event.lot_id)
+            .execute(&mut **tx)
+            .await?;
+            sqlx::query(
+                "UPDATE wafer SET state = 'queued'
+                 WHERE lot_id = $1 AND state IN ('created','waiting')",
+            )
+            .bind(&event.lot_id)
+            .execute(&mut **tx)
+            .await?;
         }
         EventKind::ReworkStarted => {
             let to_step = event
@@ -770,11 +814,15 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .get("to_step")
                 .and_then(Value::as_i64)
                 .unwrap_or(0) as i32;
-            sqlx::query("UPDATE lot SET state = 'waiting', current_step = $2 WHERE id = $1")
-                .bind(&event.lot_id)
-                .bind(to_step)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query(
+                "UPDATE lot SET state = CASE WHEN hold_reason IS NULL THEN 'waiting' ELSE state END,
+                                current_step = $2
+                 WHERE id = $1",
+            )
+            .bind(&event.lot_id)
+            .bind(to_step)
+            .execute(&mut **tx)
+            .await?;
             sqlx::query(
                 "UPDATE wafer SET state = 'waiting', rework_count = rework_count + 1
                  WHERE lot_id = $1 AND state <> 'scrapped'",
@@ -844,10 +892,12 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                     .await?;
                 }
             }
-            sqlx::query("UPDATE lot SET state = 'split', wafer_count = 0 WHERE id = $1")
-                .bind(&event.lot_id)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query(
+                "UPDATE lot SET state = 'split', wafer_count = 0, hold_reason = NULL WHERE id = $1",
+            )
+            .bind(&event.lot_id)
+            .execute(&mut **tx)
+            .await?;
         }
         EventKind::LotMerged => {
             let target = event
@@ -880,13 +930,15 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .execute(&mut **tx)
                 .await?;
             }
-            sqlx::query("UPDATE lot SET state = 'merged', wafer_count = 0 WHERE id = $1")
-                .bind(&event.lot_id)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query(
+                "UPDATE lot SET state = 'merged', wafer_count = 0, hold_reason = NULL WHERE id = $1",
+            )
+            .bind(&event.lot_id)
+            .execute(&mut **tx)
+            .await?;
             sqlx::query(
                 "UPDATE lot SET wafer_count = (SELECT count(*) FROM wafer WHERE lot_id = $1),
-                                state = 'waiting' WHERE id = $1",
+                                state = 'waiting', hold_reason = NULL WHERE id = $1",
             )
             .bind(target)
             .execute(&mut **tx)
