@@ -1,0 +1,89 @@
+crates/oxide-ui/src/scene.rs
+  s_8d3e3cd69e1af0::t_139ac436de0074 64,156,175,194,209,236
+  s_8d3e3cd69e1af0::t_d66dee8c68ca4a 267-281,285-286,330-331
+  s_8d3e3cd69e1af0::t_4748ee12e4f483 318-319,326
+  s_8d3e3cd69e1af0::t_73bb68b14234f1 282-284,287-317,320-325,327-329
+  s_8d3e3cd69e1af0::t_b70ab0a7a00429 11
+crates/oxide-render/src/shaders/mipmap.wgsl
+  s_8d3e3cd69e1af0::t_341ea06ee74e31 1-31
+crates/oxide-scene/src/lib.rs
+  s_8d3e3cd69e1af0::t_935b66f706575a 24
+crates/oxide-render/src/glb.rs
+  s_8d3e3cd69e1af0::t_13336b755b1854 187-195
+crates/oxide-render/src/shaders/scene.wgsl
+  s_8d3e3cd69e1af0::t_9bd1e7842c91dc 120-121,129
+  s_8d3e3cd69e1af0::t_4402cdcc09fcff 112,119,126-128,130-133
+  s_8d3e3cd69e1af0::t_f7853cc9bcfdc4 122-125
+  s_8d3e3cd69e1af0::t_91b68ecf259059 137
+  s_8d3e3cd69e1af0::t_d274f8381f1f95 61-69
+  s_8d3e3cd69e1af0::t_0ab14b5bd22e41 18-19
+crates/oxide-ui/src/engine.rs
+  s_8d3e3cd69e1af0::t_08114cf09040f5 4-7
+  s_8d3e3cd69e1af0::t_bfe3392a5ef7eb 116-119,121,130-132
+  s_8d3e3cd69e1af0::t_39fe82f03893a2 46,109,122
+  s_8d3e3cd69e1af0::t_b67b3891e92cec 120
+  s_8d3e3cd69e1af0::t_259992d4d9963d 32-34
+crates/oxide-render/src/bin/oxide-render-evidence.rs
+  s_8d3e3cd69e1af0::t_af5a73199bb877 218
+  s_8d3e3cd69e1af0::t_7a7a7c1f608894 239,241,245
+  s_8d3e3cd69e1af0::t_dd227c4e19502d 326-327,329,336-340,353-354
+  s_8d3e3cd69e1af0::t_a0837d3cad0849 375-376,378,382-386,399-400
+  s_8d3e3cd69e1af0::t_be7b676ef9ba58 150-154,167,173-217,219-221
+  s_8d3e3cd69e1af0::t_6544f85c1c7568 155-166,168-172
+crates/oxide-render/src/renderer.rs
+  s_8d3e3cd69e1af0::t_af6094601ea60c 1166-1178
+  s_8d3e3cd69e1af0::t_f8006868dfe84c 935,940
+  s_8d3e3cd69e1af0::t_54d282086668cd 98-127
+  s_8d3e3cd69e1af0::t_0284f624d7b6ac 20-23
+  s_8d3e3cd69e1af0::t_e24a33068705c4 831-934,936-939,941-997,1003
+  s_8d3e3cd69e1af0::t_2fcca36e05451f 1011,1019,1027
+  s_8d3e3cd69e1af0::t_fa5384462c44f9 800,804-806
+  s_8d3e3cd69e1af0::t_0e154553234215 575-576,581
+  s_8d3e3cd69e1af0::t_79236ebe61567c 1038
+crates/oxide-ui/src/viewport.rs
+  s_8d3e3cd69e1af0::t_86066d3eb9fe57 80,152-154
+  s_8d3e3cd69e1af0::t_5d13bfd9fcd77a 260-262,264
+  s_8d3e3cd69e1af0::t_7f6b148e7b5bbe 331
+  s_8d3e3cd69e1af0::t_7292a441560c71 346-369,372-381,383-386,389-399,408,410
+  s_8d3e3cd69e1af0::t_e26e98c1dc9e3f 343
+  s_8d3e3cd69e1af0::t_bdcd6bada01cfc 133-134,151,155-157,161,163-169
+  s_8d3e3cd69e1af0::t_3505d19e956633 27,29-30,32-33,36-41
+  s_8d3e3cd69e1af0::t_bee7573455a158 28,31,34-35,44-48,57,61-66,68-79,81-84
+  s_8d3e3cd69e1af0::t_097a2afeba20a0 49-56,58-60,67
+  s_8d3e3cd69e1af0::t_fbeaedfa1a5bb5 148-150,162
+  s_8d3e3cd69e1af0::t_a1b91661e3de79 254-259
+  s_8d3e3cd69e1af0::t_22d4f3d4901bde 370-371,382,387-388,400-407,409,411-427
+crates/oxide-scene/src/graph.rs
+  s_8d3e3cd69e1af0::t_d35451c94fafba 173-174
+  s_8d3e3cd69e1af0::t_d95296b44b0bfa 208
+crates/oxide-ui/store.ts
+  s_8d3e3cd69e1af0::t_d2ece4a36c9239 703-704
+  s_8d3e3cd69e1af0::t_99e7ca75734a89 207-212
+  s_8d3e3cd69e1af0::t_31c391550202af 177-184
+  s_8d3e3cd69e1af0::t_599fb64621aa5e 705-706
+  s_8d3e3cd69e1af0::t_0572a06bf613c8 261-262,264-279,281-290
+  s_8d3e3cd69e1af0::t_2ecc4a7bd6ca7b 726-729
+  s_8d3e3cd69e1af0::t_b9e3ae9a6c9fff 31
+crates/oxide-scene/src/layout.rs
+  s_8d3e3cd69e1af0::t_bdbd56cdf7bcdd 188-201,210,216
+  s_8d3e3cd69e1af0::t_f095023ac60151 235
+  s_8d3e3cd69e1af0::t_deddec80025e14 237,241
+  s_8d3e3cd69e1af0::t_7ecc58ef0ba745 378-401
+  s_8d3e3cd69e1af0::t_c645371cee6411 202-209,211-215,217-218,253-254
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "90450fb6645d42657199be7d61b8d3e570416c70",
+  "prompts": {},
+  "sessions": {
+    "s_8d3e3cd69e1af0": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_de2c7826-436c-42ee-bd67-59dc3b7c7444",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
