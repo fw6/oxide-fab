@@ -115,8 +115,9 @@ process.
 
 - Interface edits hot-update; Rust edits rebuild and restart (unchanged from
   nsh's mixed-mode contract).
-- Tests moved from `cargo test` (`tests/dashboard.rs`) to `App.test.tsx`:
-  same fixtures, same eight behaviors, a stubbed API, and the viewport/desktop
+- Tests moved from `cargo test` (`tests/dashboard.rs`, `src/data.rs`) to
+  `App.test.tsx` and `model.test.ts`: the same thirteen behaviors (eight
+  interface, five event-fold/clock), a stubbed API, and the viewport/desktop
   exports stood in for. `nsh test` still runs in the `ui` CI job.
 - The Windows native view now emits its wheel as `nativewheel`, because
   declaring a `wheel` native event would take `onWheel` away from macOS and

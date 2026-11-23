@@ -34,9 +34,10 @@ All notable changes to `oxide-fab` are recorded here. The format follows
   keeps the camera, the selection and the render thread. The Rust crate keeps
   the wgpu viewport, `oxide-scene`/`Camera`/picking and the desktop actions,
   exported as the modules `Viewport` and `Desktop`; the scene boundary is
-  `SceneInput`. Tests moved from `tests/dashboard.rs` to `App.test.tsx` with the
-  same eight behaviors. Windows now emits its wheel as the `nativewheel` native
-  event so `onWheel` stays available on macOS and Linux. See
+  `SceneInput`. Tests moved from `tests/dashboard.rs` and `src/data.rs` to
+  `App.test.tsx` and `model.test.ts` with the same thirteen behaviors (eight
+  interface, five event-fold/clock). Windows now emits its wheel as the
+  `nativewheel` native event so `onWheel` stays available on macOS and Linux. See
   [ADR 010](docs/decisions/010-tsx-interface.md).
 - **nsh 0.5 → 0.6.1.** The CLI, `nsh-core` and the three platform crates move
   together; `nsh.json` now pins `"nsh": ">=0.6"`. 0.6 makes `application` a
