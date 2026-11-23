@@ -157,8 +157,8 @@ impl Model {
 mod tests {
     use super::*;
 
-    const GLB: &[u8] = include_bytes!("../../../assets/fab/oxide-fab.glb");
-    const MANIFEST: &str = include_str!("../../../assets/fab/fab-manifest.json");
+    const GLB: &[u8] = include_bytes!("../../../crates/oxide-ui/assets/fab/oxide-fab.glb");
+    const MANIFEST: &str = include_str!("../../../crates/oxide-ui/assets/fab/fab-manifest.json");
 
     #[test]
     fn every_manifest_node_is_in_the_committed_glb() {

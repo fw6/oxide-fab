@@ -9,6 +9,11 @@ GreptimeDB；断链不丢数据，删库能从事件日志重建，备份真做�
 从全厂（L0）→ 机台部件（L1）→ 批次逐片（L2）→ 单个 `event_id` 的 outbox 与
 GreptimeDB 数据点（L3）逐层下钻，每一层都能查到真实数据。
 
+工作台的界面是 **TSX**（`App.tsx`、`store.ts`、`components/`、`panels/`），
+3D 视图与桌面动作留在 Rust：改界面保存即热更新（约 120–150 ms），camera、
+选中层级和渲染线程都不会因重载重置；改 Rust 才重建并重启。拆分的理由与边界见
+[ADR 010](docs/decisions/010-tsx-interface.md)。
+
 ![CI](https://github.com/fw6/oxide-fab/actions/workflows/ci.yml/badge.svg)
 ![Release](https://github.com/fw6/oxide-fab/actions/workflows/release.yml/badge.svg)
 
@@ -49,7 +54,7 @@ docker compose up -d --wait
 
 ```sh
 cd crates/oxide-ui
-nsh run                    # 本机桌面窗口（首次构建约 3 分钟）
+nsh run                    # 本机桌面窗口；TSX 改动热更新（首次构建约 3 分钟）
 ```
 
 三个原生安装包，在各自的操作系统上构建：
@@ -68,6 +73,10 @@ nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml
 ./scripts/validate-assets.sh
 ./scripts/render-evidence.sh artifacts/render   # Linux/Windows 走软件渲染
 ```
+
+`nsh` 每次指纹变化都会在 `crates/oxide-ui/target/debug/build/` 留一整份 app
+产物，屡次构建后会涨到几十 GB。`./scripts/clean-ui-cache.sh` 清掉这份缓存和
+`incremental`，不碰 `deps/`、release 产物与安装包；下次构建会重跑 build script。
 
 截图/CI 用的启动开关（不改变功能）：`OXIDE_DEMO=1` 自动播放引导演示；
 `OXIDE_VIEW=tool:CLN-01|lot:LOT-0001|event:<uuid>|factory` 直接打开某一层；
@@ -123,7 +132,7 @@ flowchart LR
     GT -->|S3| S3[(MinIO<br/>oxide-data)]
     PG -->|pgBackRest + 逻辑备份| S3B[(MinIO<br/>oxide-backup)]
 
-    UI[oxide-ui<br/>nsh Rust] -->|snapshot / events?since| API
+    UI[oxide-ui<br/>TSX + Rust 视口] -->|snapshot / events?since| API
     GT -->|SPC 降采样| API
 ```
 

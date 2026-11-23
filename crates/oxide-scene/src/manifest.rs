@@ -387,7 +387,8 @@ impl FabManifest {
 pub(crate) mod tests {
     use super::*;
 
-    pub(crate) const MANIFEST: &str = include_str!("../../../assets/fab/fab-manifest.json");
+    pub(crate) const MANIFEST: &str =
+        include_str!("../../../crates/oxide-ui/assets/fab/fab-manifest.json");
 
     fn manifest() -> FabManifest {
         FabManifest::from_json(MANIFEST).expect("the committed manifest parses")

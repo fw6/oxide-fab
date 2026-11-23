@@ -3,11 +3,32 @@
   "id": "com.fw6.oxidefab",
   "version": "0.2.0",
   "build": 1,
+  "nsh": ">=0.6",
   "rust": ".",
-  "root": "App",
   "theme": "theme.json",
   "appearance": "dark",
   "icon": "icon.png",
+  "capabilities": {
+    "application": true,
+    "network": {
+      "hosts": ["*"]
+    },
+    "statusBar": true,
+    "process": {
+      "env": [
+        "OXIDE_DEMO",
+        "OXIDE_API_URL",
+        "OXIDE_THEME",
+        "OXIDE_EXPLODE",
+        "OXIDE_TAB",
+        "OXIDE_WHATIF",
+        "OXIDE_VIEW",
+        "OXIDE_REPO_ROOT",
+        "OXIDE_RENDER_DISABLE",
+        "OXIDE_RENDER_SOFTWARE"
+      ]
+    }
+  },
   "window": {
     "title": "氧化层 oxide-fab · 3D 工作台",
     "defaultSize": {

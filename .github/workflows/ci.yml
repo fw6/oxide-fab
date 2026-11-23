@@ -34,7 +34,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
-  NSH_VERSION: v0.5.0
+  NSH_VERSION: v0.6.1
 
 jobs:
   lint-and-test:
@@ -87,7 +87,7 @@ jobs:
           cargo audit
 
   ui:
-    name: nsh UI tests, assets and UI workspace lint
+    name: nsh TSX UI tests, assets and UI workspace lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -158,10 +158,10 @@ jobs:
           cargo clippy --manifest-path crates/oxide-ui/Cargo.toml \
             --all-targets -- -D warnings
 
-      - name: nsh check (cargo check for the crate)
+      - name: nsh check (cargo check and the TSX type check)
         run: nsh check crates/oxide-ui
 
-      - name: nsh test (headless shell, domain and control tests, JUnit report)
+      - name: nsh test (headless TSX: shell, domains, control bar, demo; JUnit report)
         run: |
           mkdir -p artifacts
           nsh test crates/oxide-ui --junit artifacts/nsh-tests.xml

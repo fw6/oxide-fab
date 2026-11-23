@@ -1,6 +1,7 @@
 # ADR 001 — UI toolchain: nsh (Native Shell), pure Rust mode
 
-- **Status:** accepted
+- **Status:** accepted; the pure-Rust half is superseded by
+  [ADR 010](010-tsx-interface.md) (TSX interface, Rust viewport)
 - **Date:** 2026-11-16
 - **Decision:** build `oxide-ui` as an nsh app in its **Rust** template
   (`nsh init --template rust`), with no TSX entry and no QuickJS in the app.

@@ -113,9 +113,10 @@ fn parse_args() -> Options {
         width: 1440,
         height: 900,
         software: std::env::var("OXIDE_RENDER_SOFTWARE").is_ok_and(|value| value == "1"),
-        glb: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../assets/fab/oxide-fab.glb"),
+        // The factory ships with the UI crate, beside the code that loads it.
+        glb: PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../oxide-ui/assets/fab/oxide-fab.glb"),
         manifest: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../assets/fab/fab-manifest.json"),
+            .join("../oxide-ui/assets/fab/fab-manifest.json"),
         validate_only: false,
     };
     let mut args = std::env::args().skip(1);

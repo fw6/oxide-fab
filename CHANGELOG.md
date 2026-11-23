@@ -28,6 +28,30 @@ All notable changes to `oxide-fab` are recorded here. The format follows
 
 ### Changed
 
+- **The workbench interface is TSX.** Panels, the store (signals, polling,
+  actions), the demo and formatting moved to `App.tsx`/`store.ts`/
+  `components/`/`panels/`, so an interface edit is a hot update (~150 ms) and
+  keeps the camera, the selection and the render thread. The Rust crate keeps
+  the wgpu viewport, `oxide-scene`/`Camera`/picking and the desktop actions,
+  exported as the modules `Viewport` and `Desktop`; the scene boundary is
+  `SceneInput`. Tests moved from `tests/dashboard.rs` to `App.test.tsx` with the
+  same eight behaviors. Windows now emits its wheel as the `nativewheel` native
+  event so `onWheel` stays available on macOS and Linux. See
+  [ADR 010](docs/decisions/010-tsx-interface.md).
+- **nsh 0.5 → 0.6.1.** The CLI, `nsh-core` and the three platform crates move
+  together; `nsh.json` now pins `"nsh": ">=0.6"`. 0.6 makes `application` a
+  capability: an app that declares `capabilities` must grant it for its main
+  window, so `"application": true` joins `network`/`statusBar`/`process.env`.
+  0.6 also makes HTTP, WebSocket, SVG and the updater optional, which drops
+  ~30 transitive crates from the UI workspace, and the platform crates no
+  longer ask for `plot`/`math` (nothing reaches them). CI's `.nsh` cache key
+  moves to `v0.6.1` so a cached 0.5 host is never reused.
+- **The repository pins its Cargo registry to rsproxy.cn**
+  (`.cargo/config.toml`). The machine-wide config replaces crates.io with the
+  corporate Artifactory mirror, which hung while resolving nsh 0.6.1 and is the
+  slowest part of a cold build here; a project config wins over
+  `$CARGO_HOME`'s. Lock files are untouched (they keep the canonical crates.io
+  source), so only the fetch location changes.
 - **PostgreSQL 16 → 18** (`postgres:18-bookworm`, 18.7). PG18 keeps the cluster
   in `/var/lib/postgresql/18/docker` with the volume at `/var/lib/postgresql`,
   so `pg1-path` and both compose files moved with it; bookworm's pgBackRest 2.45

@@ -5,8 +5,9 @@ Reviewed on 2026-11-17 against the
 and the [Rust API Guidelines](https://rust-lang.github.io/api-guidelines/checklist.html).
 
 Scope: the six workspace crates (`oxide-core`, `oxide-sim`, `oxide-store`,
-`oxide-api`, `oxide-secs`, `oxide-server`) and the nsh dashboard
-(`oxide-ui`), roughly 10 000 lines of Rust.
+`oxide-api`, `oxide-secs`, `oxide-server`) and the Rust half of the nsh
+dashboard (`oxide-ui`: renderer, scene, viewport and desktop exports, roughly
+1 500 lines since the interface moved to TSX in ADR 010).
 
 The review had two outcomes: a lint gate that makes the guidelines mechanical,
 and a set of fixes the gate then found. One structural item is left for a
@@ -302,7 +303,9 @@ cargo test --workspace
 cd crates/oxide-ui
 cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
-cargo test --lib
+cd ../..
+nsh check crates/oxide-ui
+nsh test crates/oxide-ui
 ```
 
 The integration scripts (`scripts/smoke.sh`, `scripts/chaos.sh`,
