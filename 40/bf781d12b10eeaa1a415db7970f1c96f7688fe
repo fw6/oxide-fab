@@ -1,0 +1,27 @@
+crates/oxide-core/src/state_machine.rs
+  s_4855c28dcb0c5e::t_c4acac03885bae 562-566
+crates/oxide-sim/src/lib.rs
+  s_4855c28dcb0c5e::t_f9c397838853b8 1728,1735
+  s_4855c28dcb0c5e::t_8eac8213f5491a 675-679
+  s_4855c28dcb0c5e::t_b7bb4003a568c8 2009-2059
+  s_4855c28dcb0c5e::t_2656a10539b3a4 2060-2082
+  s_4855c28dcb0c5e::t_79733a4f83f6a2 15
+  s_4855c28dcb0c5e::t_1f09c02d557cd7 688-691
+  s_4855c28dcb0c5e::t_be0319610535b4 730-732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "40bf781d12b10eeaa1a415db7970f1c96f7688fe",
+  "prompts": {},
+  "sessions": {
+    "s_4855c28dcb0c5e": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_46e72969-cec6-4d7f-94a8-df9540ef4aaa",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
