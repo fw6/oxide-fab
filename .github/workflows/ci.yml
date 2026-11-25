@@ -102,7 +102,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Cache the nsh runner workspace
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: crates/oxide-ui/.nsh
           key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
@@ -183,7 +183,7 @@ jobs:
       # Restored before the Rust target so the cached artefacts keep their
       # newer mtimes; the other order makes cargo treat every source as changed.
       - name: Cache the nsh runner workspace
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: crates/oxide-ui/.nsh
           key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
