@@ -1,0 +1,42 @@
+name: Native desktop libraries
+description: >-
+  Install the Linux desktop build dependencies through a runner-owned apt
+  cache. Every job uses this action, so the cache path and mirror timeouts have
+  one definition.
+
+inputs:
+  extra:
+    description: Extra apt packages for this job, space separated
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    # `/var/cache/apt/archives` is root-owned, so caching that path never
+    # saved (tar failed on `partial`/`lock`). This path is runner-owned. The
+    # key hashes this file, so changing the package list invalidates the cache.
+    - name: Cache apt archives
+      uses: actions/cache@v4
+      with:
+        path: ~/apt-archives
+        key: apt-${{ runner.os }}-${{ hashFiles('.github/actions/native-deps/action.yml') }}
+
+    - name: apt-get update and install
+      shell: bash
+      run: |
+        set -euo pipefail
+        # A stalled mirror once parked the job for half an hour: fail or retry
+        # instead of waiting on a dead connection.
+        mkdir -p "$HOME/apt-archives/partial"
+        options=(
+          -o Dir::Cache::archives="$HOME/apt-archives"
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o Acquire::Retries=5
+        )
+        sudo apt-get "${options[@]}" update
+        sudo apt-get "${options[@]}" install -y --no-install-recommends \
+          libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+          libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick \
+          fonts-noto-cjk ${{ inputs.extra }}

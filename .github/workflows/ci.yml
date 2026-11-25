@@ -76,6 +76,16 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # Action pins, the apt cache, the MSRV, the service port and the desktop
+      # package layout. Each check names the fix; see scripts/check-consistency.py.
+      - name: Repository invariants
+        run: python3 scripts/check-consistency.py
+
+      # SC2012 (`ls` where a glob belongs) was fixed twice, in a script and in
+      # CI. The gate makes a third occurrence impossible.
+      - name: shellcheck
+        run: shellcheck -e SC1091 scripts/*.sh
+
       - name: cargo test (no database needed; the renderer uses lavapipe)
         env:
           OXIDE_RENDER_SOFTWARE: "1"
@@ -131,37 +141,9 @@ jobs:
             . -> target
             crates/oxide-ui -> target
 
+      - uses: ./.github/actions/native-deps
 
-            # `/var/cache/apt/archives` is root-owned, so an `actions/cache` of that
-      # path never saved (tar failed on `partial`/`lock`). Point apt at a
-      # runner-owned cache instead: the ~300 MB of .debs is what a slow mirror
-      # makes expensive, and the same install has taken 0.4 and 21 minutes.
-      - name: Cache apt archives
-        uses: actions/cache@v4
-        with:
-          path: ~/apt-archives
-          key: apt-${{ runner.os }}-gtk-vulkan-1
-
-      - name: Native libraries for the desktop targets
-        run: |
-          set -euo pipefail
-          # A stalled mirror read once parked this step for half an hour: fail
-          # or retry instead of waiting on a dead connection.
-          mkdir -p "$HOME/apt-archives/partial"
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 update
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 install -y --no-install-recommends \
-            libgtk-4-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick \
-            fonts-noto-cjk
-
-      - name: Install nsh
-        run: |
-          curl -fsSL https://nsh.dev/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - uses: ./.github/actions/install-nsh
 
       - name: nsh version
         run: nsh --version
@@ -219,7 +201,7 @@ jobs:
             target: windows
             arch: x86_64
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # nsh regenerates crates/oxide-ui/.nsh on checkout, and a fresh runner
       # workspace rebuilds for minutes (11 min on this machine; 5 s when the
@@ -244,47 +226,13 @@ jobs:
             .
             crates/oxide-ui
 
-
-            # `/var/cache/apt/archives` is root-owned, so an `actions/cache` of that
-      # path never saved (tar failed on `partial`/`lock`). Point apt at a
-      # runner-owned cache instead: the ~300 MB of .debs is what a slow mirror
-      # makes expensive, and the same install has taken 0.4 and 21 minutes.
-      - name: Cache apt archives
-        uses: actions/cache@v4
-        with:
-          path: ~/apt-archives
-          key: apt-${{ runner.os }}-gtk-vulkan-1
-
-      - name: Linux native libraries (GTK 4, Vulkan, Xvfb, screenshot)
+      # The desktop UI links WebKitGTK; the shared action owns the base set.
+      - uses: ./.github/actions/native-deps
         if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          # A stalled mirror read once parked this step for half an hour: fail
-          # or retry instead of waiting on a dead connection.
-          mkdir -p "$HOME/apt-archives/partial"
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 update
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 install -y --no-install-recommends \
-            libgtk-4-dev libwebkitgtk-6.0-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick \
-            fonts-noto-cjk
+        with:
+          extra: libwebkitgtk-6.0-dev
 
-      - name: Install nsh (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          curl -fsSL https://nsh.dev/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install nsh (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          irm https://nsh.dev/install.ps1 | iex
-          "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - uses: ./.github/actions/install-nsh
 
       - name: nsh version
         shell: bash
@@ -431,7 +379,7 @@ jobs:
 
       - name: Upload the desktop evidence
         if: always() && inputs.artifacts != false
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.target }}
           path: |

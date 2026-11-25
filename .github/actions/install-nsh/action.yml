@@ -1,0 +1,19 @@
+name: Install nsh
+description: Install the pinned nsh release and put it on PATH.
+
+runs:
+  using: composite
+  steps:
+    - name: Install nsh (Unix)
+      if: runner.os != 'Windows'
+      shell: bash
+      run: |
+        curl -fsSL https://nsh.dev/install.sh | sh
+        echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+    - name: Install nsh (Windows)
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        irm https://nsh.dev/install.ps1 | iex
+        "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8

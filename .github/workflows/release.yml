@@ -163,44 +163,14 @@ jobs:
             .
             crates/oxide-ui
 
-
-            # `/var/cache/apt/archives` is root-owned, so an `actions/cache` of that
-      # path never saved (tar failed on `partial`/`lock`). Point apt at a
-      # runner-owned cache instead: the ~300 MB of .debs is what a slow mirror
-      # makes expensive, and the same install has taken 0.4 and 21 minutes.
-      - name: Cache apt archives
-        uses: actions/cache@v4
-        with:
-          path: ~/apt-archives
-          key: apt-${{ runner.os }}-gtk-vulkan-1
-
-      - name: Linux native libraries
+      # The release job links WebKitGTK too, and now gets the same font set as
+      # CI: the two package lists had already drifted.
+      - uses: ./.github/actions/native-deps
         if: runner.os == 'Linux'
-        run: |
-          set -euo pipefail
-          mkdir -p "$HOME/apt-archives/partial"
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 update
-          sudo apt-get -o Dir::Cache::archives="$HOME/apt-archives" \
-            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o Acquire::Retries=5 install -y --no-install-recommends \
-            libgtk-4-dev libwebkitgtk-6.0-dev \
-            libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-            libpango1.0-dev libvulkan1 mesa-vulkan-drivers xvfb imagemagick
+        with:
+          extra: libwebkitgtk-6.0-dev
 
-      - name: Install nsh (Unix)
-        if: runner.os != 'Windows'
-        run: |
-          curl -fsSL https://nsh.dev/install.sh | sh
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
-
-      - name: Install nsh (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          irm https://nsh.dev/install.ps1 | iex
-          "$env:LOCALAPPDATA\nsh\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+      - uses: ./.github/actions/install-nsh
 
       - name: Resolve the version
         shell: bash
