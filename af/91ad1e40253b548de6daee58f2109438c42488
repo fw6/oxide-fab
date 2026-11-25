@@ -1,0 +1,74 @@
+crates/oxide-store/src/pg.rs
+  s_4855c28dcb0c5e::t_aaff0d7103d9ba 733-736
+  s_4855c28dcb0c5e::t_9b93feae90c63c 943
+crates/oxide-core/src/metrics.rs
+  s_4855c28dcb0c5e::t_dd40de9bd57265 238
+  s_4855c28dcb0c5e::t_9bfc3a99bfd629 157-158
+  s_4855c28dcb0c5e::t_3c3626e31aef97 222-223
+  s_4855c28dcb0c5e::t_6525d8dbdf15f0 139
+  s_4855c28dcb0c5e::t_eeb304d980965d 278
+  s_4855c28dcb0c5e::t_d058a83470cd4d 300-301
+crates/oxide-core/src/analytics.rs
+  s_4855c28dcb0c5e::t_26ce2139582904 534-535
+  s_4855c28dcb0c5e::t_bfeaebff908721 267
+  s_4855c28dcb0c5e::t_d7cf5168a3833d 544-545
+  s_4855c28dcb0c5e::t_ed05d729715f06 327
+  s_4855c28dcb0c5e::t_17c73e66951f1e 663
+  s_4855c28dcb0c5e::t_a08d3a15d98c25 309
+  s_4855c28dcb0c5e::t_ef331be2cc5cfa 707
+  s_4855c28dcb0c5e::t_7198ad872bb08a 292
+  s_4855c28dcb0c5e::t_885e49b7579299 654-659
+  s_4855c28dcb0c5e::t_1b3ce3d6540b9c 682-686
+  s_4855c28dcb0c5e::t_ccd1b918e14b72 533,536
+  s_4855c28dcb0c5e::t_7a25377e333713 285
+  s_4855c28dcb0c5e::t_2dbd3d744f71a5 234
+  s_4855c28dcb0c5e::t_47736f3f43ac70 350
+  s_4855c28dcb0c5e::t_514953a7b4cdd3 240
+crates/oxide-core/src/events.rs
+  s_4855c28dcb0c5e::t_3ec26deecb232a 436-480
+  s_4855c28dcb0c5e::t_085728dc668440 525
+  s_4855c28dcb0c5e::t_dc5ea9f77bc188 751
+  s_4855c28dcb0c5e::t_177aab06949204 264-339
+  s_4855c28dcb0c5e::t_5a6492a329b0f2 188
+  s_4855c28dcb0c5e::t_87783a27d44376 382,390
+  s_4855c28dcb0c5e::t_eb9053a19925c9 8-15,17-18,63-152,154-187,189-263,340-343,348,357,365,371-381,383-389,391-395,402-418,421,423,428,434-435,481-524,526-533,538,546-553,557-558,589-595,599-608,612-623,627-632,636-647,651-750,752-766,768-771
+  s_4855c28dcb0c5e::t_76ae29d3de25ea 767
+crates/oxide-core/src/state_machine.rs
+  s_4855c28dcb0c5e::t_8f67443e38d177 1241,1272,1306,1319,1328,1351,1370,1425
+  s_4855c28dcb0c5e::t_0d26bbf2af9429 944
+  s_4855c28dcb0c5e::t_fc537200f78aaa 332-335
+  s_4855c28dcb0c5e::t_4e23773e1aa81b 16
+  s_4855c28dcb0c5e::t_e807b4ff0a4519 377-380
+  s_4855c28dcb0c5e::t_e092812eb3d7b0 955
+  s_4855c28dcb0c5e::t_93d327e46f1c08 432-436
+  s_4855c28dcb0c5e::t_dab31e838e85d9 1376
+crates/oxide-core/src/genealogy.rs
+  s_4855c28dcb0c5e::t_1105df8c48eed2 62
+  s_4855c28dcb0c5e::t_366fae9afcfc1f 54
+  s_4855c28dcb0c5e::t_16ca43987ae496 38
+  s_4855c28dcb0c5e::t_f8d578c58924a6 79-80,82
+crates/oxide-sim/src/lib.rs
+  s_4855c28dcb0c5e::t_4766004cd2d774 908,2078,2161,2190
+  s_4855c28dcb0c5e::t_71e05189ab58e6 565
+  s_4855c28dcb0c5e::t_c53dc870963e36 1803,1858,1879,1945
+crates/oxide-api/src/handlers.rs
+  s_4855c28dcb0c5e::t_e3e5cd423a5b24 851
+crates/oxide-sim/src/whatif.rs
+  s_4855c28dcb0c5e::t_026882a94a06e9 237,305
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "af91ad1e40253b548de6daee58f2109438c42488",
+  "prompts": {},
+  "sessions": {
+    "s_4855c28dcb0c5e": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_46e72969-cec6-4d7f-94a8-df9540ef4aaa",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
