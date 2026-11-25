@@ -10,7 +10,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, VecDeque};
 use std::ops::ControlFlow;
 
-use oxide_core::events::{DomainEvent, EventKind, TrackInReport, TrackOutReport};
+use oxide_core::events::{DomainEvent, EventData, EventKind, TrackInReport, TrackOutReport};
 use oxide_core::model::{
     Equipment, EquipmentState, Lot, LotState, Route, Wafer, WaferId, WaferState,
     deterministic_event_id, lot_id_for,
@@ -464,45 +464,28 @@ impl Simulation {
     pub fn apply_event(&mut self, event: &DomainEvent) {
         self.state.now_ms = self.state.now_ms.max(event.occurred_at_ms);
         self.state.event_counter = self.state.event_counter.saturating_add(1);
-        match event.kind {
-            EventKind::LotCreated => {
-                let wafers: Vec<String> = event
-                    .payload
-                    .get("wafers")
-                    .and_then(serde_json::Value::as_array)
-                    .map_or_default(|items| {
-                        items
-                            .iter()
-                            .filter_map(serde_json::Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    });
+        match &event.data {
+            EventData::LotCreated {
+                product_id,
+                route_id,
+                priority,
+                wafers,
+                ..
+            } => {
                 let mut lot = Lot::new(
                     event.lot_id.clone(),
-                    event
-                        .payload
-                        .get("product_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default(),
-                    event
-                        .payload
-                        .get("route_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default(),
-                    event
-                        .payload
-                        .get("priority")
-                        .and_then(serde_json::Value::as_i64)
-                        .unwrap_or(0) as i32,
+                    product_id,
+                    route_id,
+                    *priority,
                     wafers.len() as i32,
                     event.occurred_at_ms,
                 );
                 lot.state = LotState::Created;
-                let wafers = wafers
-                    .into_iter()
+                let wafers: Vec<Wafer> = wafers
+                    .iter()
                     .enumerate()
                     .map(|(index, id)| Wafer {
-                        id,
+                        id: id.clone(),
                         lot_id: event.lot_id.clone(),
                         slot: index as i32 + 1,
                         state: WaferState::Created,
@@ -525,11 +508,9 @@ impl Simulation {
                     .entry(event.lot_id.clone())
                     .or_insert_with(|| LotAggregate::new(lot, wafers));
             }
-            EventKind::LotQueued => {
+            EventData::LotQueued { step_no } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    if let Some(step) = event.step_no() {
-                        aggregate.lot.current_step = step;
-                    }
+                    aggregate.lot.current_step = *step_no;
                     // A held lot advances its step but stays held and out of
                     // the queues until release (the same rule as `queue`).
                     if aggregate.lot.hold_reason.is_none() {
@@ -551,26 +532,22 @@ impl Simulation {
                     }
                 }
             }
-            EventKind::RecipeVerified => {
-                let recipe_id = event
-                    .payload
-                    .get("recipe_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                let checksum = event
-                    .payload
-                    .get("checksum")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
+            EventData::RecipeVerified {
+                recipe_id,
+                checksum,
+            } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     aggregate
                         .verified_recipes
-                        .insert(recipe_id.to_owned(), checksum.to_owned());
+                        .insert(recipe_id.clone(), checksum.clone());
                 }
             }
-            EventKind::TrackIn => {
-                let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-                let wafers = event.wafers();
+            EventData::TrackIn {
+                step_no,
+                equipment_id,
+                recipe_id,
+                wafers,
+            } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     for wafer in &mut aggregate.wafers {
                         if wafers.contains(&wafer.id) {
@@ -579,34 +556,32 @@ impl Simulation {
                     }
                     aggregate.lot.state = LotState::Processing;
                 }
-                if let Some(runtime) = self.state.equipment.get_mut(&equipment_id) {
-                    let step_no = event.step_no().unwrap_or(0);
-                    let duration = self.route.step(step_no).map_or(0, |step| step.duration_ms);
+                if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
+                    let duration = self.route.step(*step_no).map_or(0, |step| step.duration_ms);
                     runtime.equipment.state = EquipmentState::Running;
                     runtime.busy_lot = Some(event.lot_id.clone());
-                    runtime.busy_step = step_no;
-                    event
-                        .recipe_id()
-                        .unwrap_or_default()
-                        .clone_into(&mut runtime.busy_recipe);
-                    runtime.busy_wafers = wafers;
+                    runtime.busy_step = *step_no;
+                    runtime.busy_recipe.clone_from(recipe_id);
+                    runtime.busy_wafers.clone_from(wafers);
                     runtime.busy_until_ms = event.occurred_at_ms + duration;
                 }
             }
-            EventKind::TrackOut => {
-                let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-                let wafers = event.wafers();
-                let step_no = event.step_no().unwrap_or(0);
+            EventData::TrackOut {
+                step_no,
+                equipment_id,
+                wafers,
+                ..
+            } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     for wafer in &mut aggregate.wafers {
                         if wafers.contains(&wafer.id) {
                             wafer.state = WaferState::Waiting;
                         }
                     }
-                    let done = aggregate.completed.entry(step_no).or_default();
+                    let done = aggregate.completed.entry(*step_no).or_default();
                     for id in wafers {
-                        if !done.contains(&id) {
-                            done.push(id);
+                        if !done.contains(id) {
+                            done.push(id.clone());
                         }
                     }
                     aggregate.lot.state = if aggregate.lot.hold_reason.is_some() {
@@ -621,14 +596,14 @@ impl Simulation {
                         LotState::Waiting
                     };
                 }
-                if let Some(runtime) = self.state.equipment.get_mut(&equipment_id) {
+                if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
                     runtime.equipment.state = EquipmentState::Idle;
                     runtime.busy_lot = None;
                     runtime.busy_wafers.clear();
                     runtime.lots_processed += 1;
                 }
             }
-            EventKind::LotCompleted => {
+            EventData::LotCompleted { .. } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     for wafer in &mut aggregate.wafers {
                         if wafer.state != WaferState::Scrapped {
@@ -639,17 +614,13 @@ impl Simulation {
                     aggregate.lot.state = LotState::Completed;
                 }
             }
-            EventKind::LotHeld => {
+            EventData::LotHeld { reason, .. } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     aggregate.lot.state = LotState::OnHold;
-                    aggregate.lot.hold_reason = event
-                        .payload
-                        .get("reason")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned);
+                    aggregate.lot.hold_reason = Some(reason.clone());
                 }
             }
-            EventKind::LotReleased => {
+            EventData::LotReleased { .. } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
                     let busy = aggregate
                         .wafers
@@ -668,18 +639,13 @@ impl Simulation {
                     }
                 }
             }
-            EventKind::ReworkStarted => {
-                let to_step = event
-                    .payload
-                    .get("to_step")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or(0) as i32;
+            EventData::ReworkStarted { to_step, .. } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate.lot.current_step = to_step;
+                    aggregate.lot.current_step = *to_step;
                     if aggregate.lot.hold_reason.is_none() {
                         aggregate.lot.state = LotState::Waiting;
                     }
-                    aggregate.completed.retain(|step, _| *step < to_step);
+                    aggregate.completed.retain(|step, _| *step < *to_step);
                     for wafer in &mut aggregate.wafers {
                         if wafer.state != WaferState::Scrapped {
                             wafer.state = WaferState::Waiting;
@@ -688,32 +654,17 @@ impl Simulation {
                     }
                 }
             }
-            EventKind::WaferScrapped => {
-                let wafer_id = event
-                    .payload
-                    .get("wafer_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
+            EventData::WaferScrapped {
+                wafer_id, reason, ..
+            } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
-                    && let Some(wafer) = aggregate.wafers.iter_mut().find(|w| w.id == wafer_id)
+                    && let Some(wafer) = aggregate.wafers.iter_mut().find(|w| w.id == *wafer_id)
                 {
                     wafer.state = WaferState::Scrapped;
-                    wafer.defect_info = event
-                        .payload
-                        .get("reason")
-                        .and_then(serde_json::Value::as_str)
-                        .map(str::to_owned);
+                    wafer.defect_info = Some(reason.clone());
                 }
             }
-            EventKind::LotSplit => {
-                let Some(children) = event
-                    .payload
-                    .get("children")
-                    .and_then(serde_json::Value::as_array)
-                else {
-                    return;
-                };
+            EventData::LotSplit { children, .. } => {
                 let parent_wafers: Vec<Wafer> = self
                     .state
                     .lots
@@ -739,75 +690,47 @@ impl Simulation {
                     parent.lot.state = LotState::Split;
                 }
                 for child in children {
-                    let child_id = child
-                        .get("lot_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or_default()
-                        .to_owned();
-                    let ids: Vec<String> = child
-                        .get("wafers")
-                        .and_then(serde_json::Value::as_array)
-                        .map_or_default(|items| {
-                            items
-                                .iter()
-                                .filter_map(serde_json::Value::as_str)
-                                .map(str::to_owned)
-                                .collect()
-                        });
                     let mut lot = parent_lot.clone();
-                    lot.id.clone_from(&child_id);
+                    lot.id.clone_from(&child.lot_id);
                     lot.parent_lot_id = Some(event.lot_id.clone());
-                    lot.wafer_count = ids.len() as i32;
+                    lot.wafer_count = child.wafers.len() as i32;
                     lot.state = LotState::Waiting;
                     let mut wafers: Vec<Wafer> = parent_wafers
                         .iter()
-                        .filter(|w| ids.contains(&w.id))
+                        .filter(|w| child.wafers.contains(&w.id))
                         .cloned()
                         .collect();
                     for (index, wafer) in wafers.iter_mut().enumerate() {
-                        wafer.lot_id.clone_from(&child_id);
+                        wafer.lot_id.clone_from(&child.lot_id);
                         wafer.slot = index as i32 + 1;
                         wafer.state = WaferState::Waiting;
                     }
                     self.state
                         .lots
-                        .insert(child_id, LotAggregate::new(lot, wafers));
+                        .insert(child.lot_id.clone(), LotAggregate::new(lot, wafers));
                 }
             }
-            EventKind::LotMerged => {
-                let target_id = event
-                    .payload
-                    .get("target_lot_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned();
-                let moved: Vec<String> = event
-                    .payload
-                    .get("wafers")
-                    .and_then(serde_json::Value::as_array)
-                    .map_or_default(|items| {
-                        items
-                            .iter()
-                            .filter_map(serde_json::Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    });
+            EventData::LotMerged {
+                target_lot_id,
+                wafers,
+                ..
+            } => {
                 let mut taken: Vec<Wafer> = Vec::new();
                 if let Some(source) = self.state.lots.get_mut(&event.lot_id) {
                     taken = source
                         .wafers
                         .iter()
-                        .filter(|w| moved.contains(&w.id))
+                        .filter(|w| wafers.contains(&w.id))
                         .cloned()
                         .collect();
-                    source.wafers.retain(|w| !moved.contains(&w.id));
+                    source.wafers.retain(|w| !wafers.contains(&w.id));
                     source.lot.state = LotState::Merged;
                     source.lot.hold_reason = None;
                     source.lot.wafer_count = 0;
                 }
-                if let Some(target) = self.state.lots.get_mut(&target_id) {
+                if let Some(target) = self.state.lots.get_mut(target_lot_id) {
                     for mut wafer in taken {
-                        wafer.lot_id.clone_from(&target_id);
+                        wafer.lot_id.clone_from(target_lot_id);
                         wafer.slot = target.wafers.len() as i32 + 1;
                         wafer.state = WaferState::Waiting;
                         target.wafers.push(wafer);
@@ -818,23 +741,21 @@ impl Simulation {
                     target.lot.state = LotState::Waiting;
                 }
             }
-            EventKind::EquipmentDown => {
-                let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-                if let Some(runtime) = self.state.equipment.get_mut(&equipment_id) {
+            EventData::EquipmentDown { equipment_id, .. } => {
+                if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
                     runtime.equipment.state = EquipmentState::Down;
                     runtime.down_since_ms = event.occurred_at_ms;
                     runtime.down_until_ms = event.occurred_at_ms + self.scenario.repair_ms;
                 }
             }
-            EventKind::EquipmentUp => {
-                let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-                if let Some(runtime) = self.state.equipment.get_mut(&equipment_id) {
+            EventData::EquipmentUp { equipment_id, .. } => {
+                if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
                     runtime.equipment.state = EquipmentState::Idle;
                     runtime.down_since_ms = 0;
                     runtime.down_until_ms = 0;
                 }
             }
-            EventKind::TrackOutDuplicate => {}
+            EventData::TrackOutDuplicate { .. } => {}
         }
     }
 
@@ -984,7 +905,7 @@ impl Simulation {
                 self.advance_counter(ids.used());
                 output.events.extend(transition.events.clone());
                 if let Some(event) = transition.events.first()
-                    && event.kind == EventKind::TrackOut
+                    && event.kind() == EventKind::TrackOut
                 {
                     output.secs.push(SecsTrigger::ProcessCompleted {
                         lot_id: lot_id.to_owned(),
@@ -1879,7 +1800,7 @@ mod tests {
         // Four steps: one track-in and one track-out each, per lot.
         let track_outs = events
             .iter()
-            .filter(|e| e.kind == EventKind::TrackOut)
+            .filter(|e| e.kind() == EventKind::TrackOut)
             .count();
         assert!(
             track_outs >= 8,
@@ -1934,7 +1855,7 @@ mod tests {
         let loaded = output
             .events
             .iter()
-            .find(|e| e.kind == EventKind::TrackIn)
+            .find(|e| e.kind() == EventKind::TrackIn)
             .expect("a lot was loaded");
         assert_eq!(
             loaded.lot_id, "LOT-0002",
@@ -1955,7 +1876,7 @@ mod tests {
         let loaded = output
             .events
             .iter()
-            .find(|e| e.kind == EventKind::TrackIn)
+            .find(|e| e.kind() == EventKind::TrackIn)
             .expect("a lot was loaded");
         assert_eq!(loaded.lot_id, "LOT-0001");
         assert_eq!(sim.state.dispatch[0].rule, DispatchRule::Fifo.label());
@@ -2021,7 +1942,7 @@ mod tests {
             output
                 .events
                 .iter()
-                .any(|e| e.kind == EventKind::EquipmentDown)
+                .any(|e| e.kind() == EventKind::EquipmentDown)
         );
         assert!(
             sim.state
@@ -2154,7 +2075,7 @@ mod tests {
         assert!(
             events
                 .iter()
-                .any(|event| event.kind == EventKind::TrackOut && event.lot_id == lot_id),
+                .any(|event| event.kind() == EventKind::TrackOut && event.lot_id == lot_id),
             "the step still tracked out"
         );
         let aggregate = &sim.state.lots[&lot_id];
@@ -2237,7 +2158,7 @@ mod tests {
             if output
                 .events
                 .iter()
-                .any(|event| event.kind == EventKind::TrackIn && event.lot_id == lot_id)
+                .any(|event| event.kind() == EventKind::TrackIn && event.lot_id == lot_id)
             {
                 loaded = true;
                 break;
@@ -2266,7 +2187,7 @@ mod tests {
         assert!(
             events
                 .iter()
-                .any(|event| event.kind == EventKind::LotCompleted)
+                .any(|event| event.kind() == EventKind::LotCompleted)
         );
         assert!(
             !sim.state

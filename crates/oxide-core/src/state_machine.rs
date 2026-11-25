@@ -10,11 +10,10 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::events::{
-    DomainEvent, EventKind, TrackInReport, TrackOutReport, equipment_down_payload,
+    DomainEvent, EventData, TrackInReport, TrackOutReport, equipment_down_payload,
     equipment_up_payload, lot_created_payload, lot_queued_payload, merged_payload, split_payload,
     track_in_payload, track_out_payload,
 };
@@ -192,7 +191,6 @@ impl LotAggregate {
         let event = DomainEvent::new(
             ids.next_id(),
             lot.id.clone(),
-            EventKind::LotCreated,
             lot_created_payload(
                 &lot.product_id,
                 &lot.route_id,
@@ -271,7 +269,6 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotQueued,
                 lot_queued_payload(step_no),
                 now_ms,
                 actor,
@@ -301,7 +298,6 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotQueued,
                 lot_queued_payload(step_no),
                 now_ms,
                 actor,
@@ -333,8 +329,10 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotHeld,
-                json!({ "reason": reason, "step_no": self.lot.current_step }),
+                EventData::LotHeld {
+                    reason: reason.to_owned(),
+                    step_no: self.lot.current_step,
+                },
                 now_ms,
                 actor,
             )],
@@ -376,8 +374,10 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotReleased,
-                json!({ "step_no": self.lot.current_step, "reason": reason }),
+                EventData::LotReleased {
+                    step_no: self.lot.current_step,
+                    reason,
+                },
                 now_ms,
                 actor,
             )],
@@ -429,8 +429,11 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::ReworkStarted,
-                json!({ "from_step": from_step, "to_step": to_step, "reason": reason }),
+                EventData::ReworkStarted {
+                    from_step,
+                    to_step,
+                    reason: reason.to_owned(),
+                },
                 now_ms,
                 actor,
             )],
@@ -482,7 +485,6 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::TrackIn,
                 track_in_payload(&report),
                 now_ms,
                 actor,
@@ -537,13 +539,12 @@ impl LotAggregate {
                 events: vec![DomainEvent::new(
                     ids.next_id(),
                     self.lot.id.clone(),
-                    EventKind::TrackOutDuplicate,
-                    json!({
-                        "step_no": step_no,
-                        "equipment_id": report.equipment_id,
-                        "wafers": wafers,
-                        "idempotent": true,
-                    }),
+                    EventData::TrackOutDuplicate {
+                        step_no,
+                        equipment_id: report.equipment_id.to_owned(),
+                        wafers: wafers.to_vec(),
+                        idempotent: true,
+                    },
                     now_ms,
                     actor,
                 )],
@@ -580,7 +581,6 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::TrackOut,
                 track_out_payload(&report),
                 now_ms,
                 actor,
@@ -629,8 +629,7 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotCompleted,
-                json!({ "step_no": step_no }),
+                EventData::LotCompleted { step_no },
                 now_ms,
                 actor,
             )],
@@ -667,8 +666,11 @@ impl LotAggregate {
             DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::WaferScrapped,
-                json!({ "wafer_id": wafer_id, "reason": reason, "step_no": step_no }),
+                EventData::WaferScrapped {
+                    wafer_id: wafer_id.to_owned(),
+                    reason: reason.to_owned(),
+                    step_no,
+                },
                 now_ms,
                 actor,
             )
@@ -680,8 +682,7 @@ impl LotAggregate {
             events.push(DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::LotCompleted,
-                json!({ "step_no": step_no }),
+                EventData::LotCompleted { step_no },
                 now_ms,
                 actor,
             ));
@@ -707,8 +708,10 @@ impl LotAggregate {
             events: vec![DomainEvent::new(
                 ids.next_id(),
                 self.lot.id.clone(),
-                EventKind::RecipeVerified,
-                json!({ "recipe_id": recipe_id, "checksum": checksum }),
+                EventData::RecipeVerified {
+                    recipe_id: recipe_id.to_owned(),
+                    checksum: checksum.to_owned(),
+                },
                 now_ms,
                 actor,
             )],
@@ -783,7 +786,6 @@ impl LotAggregate {
         let event = DomainEvent::new(
             ids.next_id(),
             self.lot.id.clone(),
-            EventKind::LotSplit,
             split_payload(&self.lot.id, &described, self.lot.current_step),
             now_ms,
             actor,
@@ -862,7 +864,6 @@ impl LotAggregate {
             events.push(DomainEvent::new(
                 ids.next_id(),
                 source.lot.id.clone(),
-                EventKind::LotMerged,
                 merged_payload(
                     std::slice::from_ref(&source.lot.id),
                     &self.lot.id,
@@ -915,7 +916,6 @@ pub fn equipment_down(
     DomainEvent::new(
         event_id,
         "",
-        EventKind::EquipmentDown,
         equipment_down_payload(equipment_id, kind, reason, alid),
         now_ms,
         actor,
@@ -934,21 +934,25 @@ pub fn equipment_up(
     DomainEvent::new(
         event_id,
         "",
-        EventKind::EquipmentUp,
         equipment_up_payload(equipment_id, kind, down_ms),
         now_ms,
         actor,
     )
 }
 
-/// Payload of a track-out, for projections that need the measurement.
+/// The measured value of a track-out, for projections that need it.
+#[must_use]
 pub fn track_out_measurement(event: &DomainEvent) -> Option<f64> {
-    event.payload.get("measured").and_then(Value::as_f64)
+    match &event.data {
+        EventData::TrackOut { measured, .. } => *measured,
+        _ => None,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events::EventKind;
     use crate::model::Recipe;
 
     fn agg(prefix: &str, wafers: i32) -> LotAggregate {
@@ -1234,7 +1238,7 @@ mod tests {
             assert_eq!(child.lot.parent_lot_id.as_deref(), Some("LOT-0001"));
             assert!(child.wafers.iter().all(|w| w.lot_id == child.lot.id));
         }
-        assert_eq!(transition.events[0].kind, EventKind::LotSplit);
+        assert_eq!(transition.events[0].kind(), EventKind::LotSplit);
     }
 
     #[test]
@@ -1265,7 +1269,7 @@ mod tests {
         let slots: Vec<i32> = target.wafers.iter().map(|w| w.slot).collect();
         assert_eq!(slots, (1..=10).collect::<Vec<_>>());
         assert!(target.wafers.iter().all(|w| w.lot_id == "LOT-0002"));
-        assert_eq!(transition.events[0].kind, EventKind::LotMerged);
+        assert_eq!(transition.events[0].kind(), EventKind::LotMerged);
     }
 
     #[test]
@@ -1299,7 +1303,7 @@ mod tests {
         assert_eq!(lot.lot.state, LotState::Waiting);
         assert!(lot.wafers.iter().all(|w| w.rework_count == 1));
         assert_eq!(lot.completed.keys().copied().collect::<Vec<_>>(), vec![1]);
-        assert_eq!(transition.events[0].kind, EventKind::ReworkStarted);
+        assert_eq!(transition.events[0].kind(), EventKind::ReworkStarted);
         assert!(matches!(
             lot.rework(3, "forward", &mut ids(), 1, "x"),
             Err(TransitionError::ReworkTargetNotEarlier { .. })
@@ -1312,7 +1316,7 @@ mod tests {
         let held = lot
             .hold("metal contamination", &mut ids(), 10, "operator")
             .unwrap();
-        assert_eq!(held.events[0].kind, EventKind::LotHeld);
+        assert_eq!(held.events[0].kind(), EventKind::LotHeld);
         assert_eq!(lot.lot.state, LotState::OnHold);
         assert_eq!(lot.lot.hold_reason.as_deref(), Some("metal contamination"));
         assert!(matches!(
@@ -1321,7 +1325,7 @@ mod tests {
         ));
 
         let released = lot.release(&mut ids(), 12, "operator").unwrap();
-        assert_eq!(released.events[0].kind, EventKind::LotReleased);
+        assert_eq!(released.events[0].kind(), EventKind::LotReleased);
         assert_eq!(lot.lot.state, LotState::Queued);
         assert!(lot.lot.hold_reason.is_none());
         assert!(lot.wafers.iter().all(|w| w.state == WaferState::Queued));
@@ -1344,7 +1348,7 @@ mod tests {
 
         // The next step is recorded, but the lot is not queued while held.
         let advanced = lot.advance_while_held(2, &mut ids(), 4, "mes").unwrap();
-        assert_eq!(advanced.events[0].kind, EventKind::LotQueued);
+        assert_eq!(advanced.events[0].kind(), EventKind::LotQueued);
         assert_eq!(lot.lot.current_step, 2);
         assert_eq!(lot.lot.state, LotState::OnHold);
 
@@ -1363,13 +1367,13 @@ mod tests {
         let first = lot
             .scrap_wafer(&wafers[0], "scratch", &mut ids, 10, "engineer")
             .unwrap();
-        assert_eq!(first.events[0].kind, EventKind::WaferScrapped);
+        assert_eq!(first.events[0].kind(), EventKind::WaferScrapped);
         assert_eq!(lot.lot.state, LotState::Queued);
 
         let last = lot
             .scrap_wafer(&wafers[1], "scratch", &mut ids, 11, "engineer")
             .unwrap();
-        let kinds: Vec<EventKind> = last.events.iter().map(|event| event.kind).collect();
+        let kinds: Vec<EventKind> = last.events.iter().map(DomainEvent::kind).collect();
         assert_eq!(
             kinds,
             vec![EventKind::WaferScrapped, EventKind::LotCompleted]
@@ -1418,7 +1422,7 @@ mod tests {
         let retry = track_out(&mut lot, "CLN-01", &all, 6200).unwrap();
 
         assert_eq!(retry.events.len(), 1);
-        assert_eq!(retry.events[0].kind, EventKind::TrackOutDuplicate);
+        assert_eq!(retry.events[0].kind(), EventKind::TrackOutDuplicate);
         assert_eq!(lot.lot, state_after_first);
         assert_eq!(lot.wafers, wafers_after_first);
     }

@@ -848,7 +848,7 @@ pub async fn redeliver(
     }
     Ok(Json(json!({
         "event_id": path.event_id,
-        "kind": persisted.event.kind.as_str(),
+        "kind": persisted.event.kind().as_str(),
         "rows_redelivered": rows.len(),
         "before": before,
         "after": after,

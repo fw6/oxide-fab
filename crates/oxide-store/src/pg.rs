@@ -1,6 +1,6 @@
 //! PostgreSQL: the append-only event log, its projections, and the outbox.
 
-use oxide_core::events::{DomainEvent, EventKind};
+use oxide_core::events::{DomainEvent, EventData, EventKind};
 use oxide_core::genealogy::{WaferGenealogy, genealogy_for};
 use oxide_core::metrics::{MetricRow, derive};
 use oxide_core::model::{Lot, LotState, Route, Wafer, WaferState};
@@ -23,6 +23,8 @@ pub enum StoreError {
         column: &'static str,
         value: String,
     },
+    #[error("event {event_id} has a payload this build cannot read: {message}")]
+    InvalidEvent { event_id: Uuid, message: String },
     #[error("time series: {0}")]
     Greptime(#[from] crate::greptime::GreptimeError),
     #[error("{0}")]
@@ -260,8 +262,8 @@ impl PgStore {
             .bind(event.event_id)
             .bind(&event.lot_id)
             .bind(&event.wafer_id)
-            .bind(event.kind.as_str())
-            .bind(&event.payload)
+            .bind(event.kind().as_str())
+            .bind(event.payload_json())
             .bind(occurred_at)
             .bind(event.occurred_at_ms)
             .bind(&event.actor)
@@ -669,19 +671,14 @@ impl PgStore {
     reason = "one arm per event kind; splitting scatters the projection"
 )]
 async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Result<()> {
-    match event.kind {
-        EventKind::LotCreated => {
-            let wafers: Vec<String> = event
-                .payload
-                .get("wafers")
-                .and_then(Value::as_array)
-                .map_or_default(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                });
+    match &event.data {
+        EventData::LotCreated {
+            product_id,
+            route_id,
+            priority,
+            wafers,
+            ..
+        } => {
             let created_at = chrono::DateTime::from_timestamp_millis(event.occurred_at_ms)
                 .unwrap_or_else(chrono::Utc::now);
             sqlx::query(
@@ -691,15 +688,9 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                  ON CONFLICT (id) DO NOTHING",
             )
             .bind(&event.lot_id)
-            .bind(event.payload.get("product_id").and_then(Value::as_str))
-            .bind(event.payload.get("route_id").and_then(Value::as_str))
-            .bind(
-                event
-                    .payload
-                    .get("priority")
-                    .and_then(Value::as_i64)
-                    .unwrap_or(0) as i32,
-            )
+            .bind(product_id)
+            .bind(route_id)
+            .bind(*priority)
             .bind(LotState::Created.as_str())
             .bind(wafers.len() as i32)
             .bind(created_at)
@@ -718,8 +709,7 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .await?;
             }
         }
-        EventKind::LotQueued => {
-            let step = event.step_no().unwrap_or(0);
+        EventData::LotQueued { step_no } => {
             sqlx::query(
                 "UPDATE lot SET state = CASE WHEN state IN ('completed','split','merged','on_hold')
                                              THEN state ELSE $3 END,
@@ -727,7 +717,7 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                  WHERE id = $1",
             )
             .bind(&event.lot_id)
-            .bind(step)
+            .bind(step_no)
             .bind(LotState::Queued.as_str())
             .execute(&mut **tx)
             .await?;
@@ -740,37 +730,36 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .execute(&mut **tx)
             .await?;
         }
-        EventKind::RecipeVerified => {}
-        EventKind::TrackIn => {
+        // Neither event moves the relational projection: a download record is
+        // kept in the log for the recipe report, and a duplicate track-out
+        // changes nothing by definition.
+        EventData::RecipeVerified { .. } | EventData::TrackOutDuplicate { .. } => {}
+        EventData::TrackIn { wafers, .. } => {
             sqlx::query("UPDATE lot SET state = 'processing' WHERE id = $1 AND state <> 'on_hold'")
                 .bind(&event.lot_id)
                 .execute(&mut **tx)
                 .await?;
-            let wafers = event.wafers();
             sqlx::query("UPDATE wafer SET state = 'processing' WHERE id = ANY($1)")
-                .bind(&wafers)
+                .bind(wafers)
                 .execute(&mut **tx)
                 .await?;
         }
-        EventKind::TrackOut | EventKind::TrackOutDuplicate => {
-            if event.kind == EventKind::TrackOut {
-                let wafers = event.wafers();
-                sqlx::query("UPDATE wafer SET state = 'waiting' WHERE id = ANY($1)")
-                    .bind(&wafers)
-                    .execute(&mut **tx)
-                    .await?;
-                sqlx::query(
-                    "UPDATE lot SET state = CASE
-                        WHEN EXISTS (SELECT 1 FROM wafer WHERE lot_id = $1 AND state = 'processing')
-                        THEN 'processing' ELSE 'waiting' END
-                     WHERE id = $1 AND state NOT IN ('completed','split','merged','on_hold')",
-                )
-                .bind(&event.lot_id)
+        EventData::TrackOut { wafers, .. } => {
+            sqlx::query("UPDATE wafer SET state = 'waiting' WHERE id = ANY($1)")
+                .bind(wafers)
                 .execute(&mut **tx)
                 .await?;
-            }
+            sqlx::query(
+                "UPDATE lot SET state = CASE
+                    WHEN EXISTS (SELECT 1 FROM wafer WHERE lot_id = $1 AND state = 'processing')
+                    THEN 'processing' ELSE 'waiting' END
+                 WHERE id = $1 AND state NOT IN ('completed','split','merged','on_hold')",
+            )
+            .bind(&event.lot_id)
+            .execute(&mut **tx)
+            .await?;
         }
-        EventKind::LotCompleted => {
+        EventData::LotCompleted { .. } => {
             sqlx::query(
                 "UPDATE wafer SET state = 'done' WHERE lot_id = $1 AND state <> 'scrapped'",
             )
@@ -782,14 +771,14 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 .execute(&mut **tx)
                 .await?;
         }
-        EventKind::LotHeld => {
+        EventData::LotHeld { reason, .. } => {
             sqlx::query("UPDATE lot SET state = 'on_hold', hold_reason = $2 WHERE id = $1")
                 .bind(&event.lot_id)
-                .bind(event.payload.get("reason").and_then(Value::as_str))
+                .bind(reason)
                 .execute(&mut **tx)
                 .await?;
         }
-        EventKind::LotReleased => {
+        EventData::LotReleased { .. } => {
             sqlx::query(
                 "UPDATE lot SET state = CASE
                      WHEN EXISTS (SELECT 1 FROM wafer WHERE lot_id = $1 AND state = 'processing')
@@ -808,12 +797,7 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .execute(&mut **tx)
             .await?;
         }
-        EventKind::ReworkStarted => {
-            let to_step = event
-                .payload
-                .get("to_step")
-                .and_then(Value::as_i64)
-                .unwrap_or(0) as i32;
+        EventData::ReworkStarted { to_step, .. } => {
             sqlx::query(
                 "UPDATE lot SET state = CASE WHEN hold_reason IS NULL THEN 'waiting' ELSE state END,
                                 current_step = $2
@@ -831,42 +815,21 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .execute(&mut **tx)
             .await?;
         }
-        EventKind::WaferScrapped => {
-            let wafer_id = event
-                .payload
-                .get("wafer_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
+        EventData::WaferScrapped {
+            wafer_id, reason, ..
+        } => {
             sqlx::query("UPDATE wafer SET state = 'scrapped', defect_info = $2 WHERE id = $1")
                 .bind(wafer_id)
-                .bind(event.payload.get("reason").and_then(Value::as_str))
+                .bind(reason)
                 .execute(&mut **tx)
                 .await?;
         }
-        EventKind::LotSplit => {
-            let step = event.step_no().unwrap_or(0);
+        EventData::LotSplit {
+            children, step_no, ..
+        } => {
             let created_at = chrono::DateTime::from_timestamp_millis(event.occurred_at_ms)
                 .unwrap_or_else(chrono::Utc::now);
-            let children: Vec<Value> = event
-                .payload
-                .get("children")
-                .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default();
             for child in children {
-                let Some(child_id) = child.get("lot_id").and_then(Value::as_str) else {
-                    continue;
-                };
-                let wafers: Vec<String> = child
-                    .get("wafers")
-                    .and_then(Value::as_array)
-                    .map_or_default(|items| {
-                        items
-                            .iter()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect()
-                    });
                 sqlx::query(
                     "INSERT INTO lot (id, product_id, route_id, priority, state, current_step,
                                       wafer_count, created_at, parent_lot_id)
@@ -875,18 +838,18 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                      ON CONFLICT (id) DO NOTHING",
                 )
                 .bind(&event.lot_id)
-                .bind(child_id)
-                .bind(step)
-                .bind(wafers.len() as i32)
+                .bind(&child.lot_id)
+                .bind(step_no)
+                .bind(child.wafers.len() as i32)
                 .bind(created_at)
                 .execute(&mut **tx)
                 .await?;
-                for (index, wafer_id) in wafers.iter().enumerate() {
+                for (index, wafer_id) in child.wafers.iter().enumerate() {
                     sqlx::query(
                         "UPDATE wafer SET lot_id = $2, slot = $3, state = 'waiting' WHERE id = $1",
                     )
                     .bind(wafer_id)
-                    .bind(child_id)
+                    .bind(&child.lot_id)
                     .bind(index as i32 + 1)
                     .execute(&mut **tx)
                     .await?;
@@ -899,25 +862,13 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
             .execute(&mut **tx)
             .await?;
         }
-        EventKind::LotMerged => {
-            let target = event
-                .payload
-                .get("target_lot_id")
-                .and_then(Value::as_str)
-                .unwrap_or_default();
-            let wafers: Vec<String> = event
-                .payload
-                .get("wafers")
-                .and_then(Value::as_array)
-                .map_or_default(|items| {
-                    items
-                        .iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_owned)
-                        .collect()
-                });
+        EventData::LotMerged {
+            target_lot_id,
+            wafers,
+            ..
+        } => {
             let existing: i64 = sqlx::query_scalar("SELECT count(*) FROM wafer WHERE lot_id = $1")
-                .bind(target)
+                .bind(target_lot_id)
                 .fetch_one(&mut **tx)
                 .await?;
             for (index, wafer_id) in wafers.iter().enumerate() {
@@ -925,7 +876,7 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                     "UPDATE wafer SET lot_id = $2, slot = $3, state = 'waiting' WHERE id = $1",
                 )
                 .bind(wafer_id)
-                .bind(target)
+                .bind(target_lot_id)
                 .bind(existing as i32 + index as i32 + 1)
                 .execute(&mut **tx)
                 .await?;
@@ -940,25 +891,21 @@ async fn project(tx: &mut Transaction<'_, Postgres>, event: &DomainEvent) -> Res
                 "UPDATE lot SET wafer_count = (SELECT count(*) FROM wafer WHERE lot_id = $1),
                                 state = 'waiting', hold_reason = NULL WHERE id = $1",
             )
-            .bind(target)
+            .bind(target_lot_id)
             .execute(&mut **tx)
             .await?;
         }
-        EventKind::EquipmentDown => {
-            if let Some(equipment_id) = event.equipment_id() {
-                sqlx::query("UPDATE equipment SET state = 'down' WHERE id = $1")
-                    .bind(equipment_id)
-                    .execute(&mut **tx)
-                    .await?;
-            }
+        EventData::EquipmentDown { equipment_id, .. } => {
+            sqlx::query("UPDATE equipment SET state = 'down' WHERE id = $1")
+                .bind(equipment_id)
+                .execute(&mut **tx)
+                .await?;
         }
-        EventKind::EquipmentUp => {
-            if let Some(equipment_id) = event.equipment_id() {
-                sqlx::query("UPDATE equipment SET state = 'idle' WHERE id = $1")
-                    .bind(equipment_id)
-                    .execute(&mut **tx)
-                    .await?;
-            }
+        EventData::EquipmentUp { equipment_id, .. } => {
+            sqlx::query("UPDATE equipment SET state = 'idle' WHERE id = $1")
+                .bind(equipment_id)
+                .execute(&mut **tx)
+                .await?;
         }
     }
     Ok(())
@@ -983,22 +930,25 @@ type EventColumns = (
 /// reclassified a row would corrupt the projection it is rebuilding.
 fn event_from_row(row: EventColumns) -> Result<PersistedEvent> {
     let (seq, event_id, lot_id, wafer_id, kind, payload, occurred_at_ms, actor) = row;
-    Ok(PersistedEvent {
-        seq,
-        event: DomainEvent {
-            event_id,
-            lot_id,
-            wafer_id,
-            kind: EventKind::parse(&kind).ok_or_else(|| StoreError::UnknownValue {
-                table: "lot_event",
-                column: "kind",
-                value: kind,
-            })?,
-            payload,
-            occurred_at_ms,
-            actor,
-        },
-    })
+    let kind = EventKind::parse(&kind).ok_or_else(|| StoreError::UnknownValue {
+        table: "lot_event",
+        column: "kind",
+        value: kind,
+    })?;
+    let event = DomainEvent::from_parts(
+        event_id,
+        lot_id,
+        wafer_id,
+        kind,
+        &payload,
+        occurred_at_ms,
+        actor,
+    )
+    .map_err(|error| StoreError::InvalidEvent {
+        event_id,
+        message: error.to_string(),
+    })?;
+    Ok(PersistedEvent { seq, event })
 }
 
 type LotColumns = (

@@ -231,13 +231,13 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
             .or_insert(at);
 
         for wafer in event.wafers() {
-            wafers.insert(wafer);
+            wafers.insert(wafer.clone());
         }
         if let Some(wafer) = &event.wafer_id {
             wafers.insert(wafer.clone());
         }
 
-        match event.kind {
+        match event.kind() {
             EventKind::LotCreated => {
                 created_lots.insert(event.lot_id.clone());
             }
@@ -264,7 +264,7 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
                 if elapsed > limit_ms {
                     violations.push(QTimeViolation {
                         lot_id: event.lot_id.clone(),
-                        wafer_ids: event.wafers(),
+                        wafer_ids: event.wafers().to_vec(),
                         from_step: step - 1,
                         to_step: step,
                         elapsed_ms: elapsed,
@@ -282,23 +282,14 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
                         equipment_id: equipment.to_owned(),
                         kind: "down".to_owned(),
                         at_ms: at,
-                        reason: event
-                            .payload
-                            .get("reason")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("equipment down")
-                            .to_owned(),
+                        reason: event.reason().unwrap_or("equipment down").to_owned(),
                         down_ms: 0,
                     });
                 }
             }
             EventKind::EquipmentUp => {
                 if let Some(equipment) = event.equipment_id() {
-                    let down_ms = event
-                        .payload
-                        .get("down_ms")
-                        .and_then(serde_json::Value::as_i64)
-                        .unwrap_or(0);
+                    let down_ms = event.down_ms().unwrap_or(0);
                     *tool_down.entry(equipment.to_owned()).or_default() += down_ms.max(0);
                     alarms.push(Alarm {
                         event_id: event.event_id.to_string(),
@@ -315,11 +306,7 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
                     continue;
                 };
                 *tool_outs.entry(equipment.to_owned()).or_default() += 1;
-                if let Some(duration) = event
-                    .payload
-                    .get("duration_ms")
-                    .and_then(serde_json::Value::as_i64)
-                {
+                if let Some(duration) = event.duration_ms() {
                     *tool_busy.entry(equipment.to_owned()).or_default() += duration.max(0);
                     if let Some(step) = event.step_no() {
                         let entry = step_durations.entry(step).or_default();
@@ -337,11 +324,7 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
                     {
                         check.runs += 1;
                         check.last_run_ms = Some(at);
-                        let checksum = event
-                            .payload
-                            .get("recipe_checksum")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or_default();
+                        let checksum = event.recipe_checksum().unwrap_or_default();
                         if checksum == check.checksum {
                             check.verified_runs += 1;
                         } else {
@@ -364,11 +347,7 @@ pub fn analyse(events: &[DomainEvent], scenario: &Scenario) -> Analysis {
             }
             EventKind::WaferScrapped => {
                 scrapped += 1;
-                let reason = event
-                    .payload
-                    .get("reason")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("other");
+                let reason = event.reason().unwrap_or("other");
                 *defects.entry(defect_class(reason).to_owned()).or_default() += 1;
             }
             _ => {}
@@ -551,22 +530,23 @@ fn notes() -> Vec<MetricNote> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{TrackInReport, TrackOutReport, track_in_payload, track_out_payload};
+    use crate::events::{
+        EventData, TrackInReport, TrackOutReport, lot_created_payload, track_in_payload,
+        track_out_payload,
+    };
     use crate::model::{Recipe, RouteStep};
-    use serde_json::json;
     use uuid::Uuid;
 
     fn scenario() -> Scenario {
         Scenario::from_json(include_str!("../../../config/scenario.json")).unwrap()
     }
 
-    fn event(kind: EventKind, lot: &str, at: i64, payload: serde_json::Value) -> DomainEvent {
-        DomainEvent::new(Uuid::new_v4(), lot, kind, payload, at, "test")
+    fn event(lot: &str, at: i64, data: EventData) -> DomainEvent {
+        DomainEvent::new(Uuid::new_v4(), lot, data, at, "test")
     }
 
     fn track_in(step: i32, lot: &str, equipment: &str, recipe: &str, at: i64) -> DomainEvent {
         event(
-            EventKind::TrackIn,
             lot,
             at,
             track_in_payload(&TrackInReport {
@@ -588,7 +568,6 @@ mod tests {
         checksum: &str,
     ) -> DomainEvent {
         event(
-            EventKind::TrackOut,
             lot,
             at,
             track_out_payload(&TrackOutReport {
@@ -670,14 +649,18 @@ mod tests {
         let scenario = scenario();
         let events = vec![
             event(
-                EventKind::LotCreated,
                 "LOT-1",
                 0,
-                json!({"wafers": ["LOT-1-W01", "LOT-1-W02"], "wafer_count": 2}),
+                lot_created_payload(
+                    "PRD-OXIDE-300",
+                    "RTE-LOGIC-4",
+                    5,
+                    &["LOT-1-W01".to_owned(), "LOT-1-W02".to_owned()],
+                ),
             ),
             track_in(1, "LOT-1", "CLN-01", "RCP-CLEAN", 1_000),
             track_out(1, "LOT-1", "CLN-01", "RCP-CLEAN", 7_000, 6_000, "x"),
-            event(EventKind::LotCompleted, "LOT-1", 60_000, json!({})),
+            event("LOT-1", 60_000, EventData::LotCompleted { step_no: 4 }),
         ];
         let analysis = analyse(&events, &scenario);
         assert_eq!(analysis.kpi.lots_completed, 1);
@@ -694,10 +677,13 @@ mod tests {
         let events = vec![
             track_in(1, "LOT-1", "CLN-01", "RCP-CLEAN", 1_000),
             event(
-                EventKind::WaferScrapped,
                 "LOT-1",
                 2_000,
-                json!({"wafer_id": "LOT-1-W01", "reason": "scratch at edge"}),
+                EventData::WaferScrapped {
+                    wafer_id: "LOT-1-W01".to_owned(),
+                    reason: "scratch at edge".to_owned(),
+                    step_no: 1,
+                },
             ),
         ];
         let analysis = analyse(&events, &scenario);
@@ -718,7 +704,7 @@ mod tests {
         let events = vec![
             track_in(1, "LOT-1", "CLN-01", "RCP-CLEAN", 0),
             track_out(1, "LOT-1", "CLN-01", "RCP-CLEAN", 6_000, 6_000, "x"),
-            event(EventKind::LotCompleted, "LOT-1", 10_000, json!({})),
+            event("LOT-1", 10_000, EventData::LotCompleted { step_no: 1 }),
         ];
         let analysis = analyse(&events, &scenario);
         let tool = analysis

@@ -136,7 +136,7 @@ pub const ALID_EQUIPMENT_DOWN: i64 = 2001;
 /// table's shape next to the code that fills it.
 #[must_use]
 pub fn derive(event: &DomainEvent, route: &Route) -> Vec<MetricRow> {
-    match event.kind {
+    match event.kind() {
         EventKind::TrackOut => track_out_rows(event, route),
         EventKind::TrackIn => track_in_rows(event),
         EventKind::EquipmentDown => equipment_down_rows(event),
@@ -154,15 +154,8 @@ fn track_out_rows(event: &DomainEvent, route: &Route) -> Vec<MetricRow> {
         return Vec::new();
     };
     let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-    let duration_ms = event
-        .payload
-        .get("duration_ms")
-        .and_then(serde_json::Value::as_i64)
-        .unwrap_or_default();
-    let measured = event
-        .payload
-        .get("measured")
-        .and_then(serde_json::Value::as_f64);
+    let duration_ms = event.duration_ms().unwrap_or_default();
+    let measured = event.measured();
     let step_id = format!("{}-{}", step.step_no, step.name);
     let mut rows = vec![
         MetricRow::Telemetry(TelemetryPoint {
@@ -226,16 +219,8 @@ fn track_in_rows(event: &DomainEvent) -> Vec<MetricRow> {
 
 fn equipment_down_rows(event: &DomainEvent) -> Vec<MetricRow> {
     let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-    let alid = event
-        .payload
-        .get("alid")
-        .and_then(serde_json::Value::as_i64)
-        .unwrap_or(ALID_EQUIPMENT_DOWN);
-    let reason = event
-        .payload
-        .get("reason")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("unknown");
+    let alid = event.alid().map_or(ALID_EQUIPMENT_DOWN, i64::from);
+    let reason = event.reason().unwrap_or("unknown");
     vec![MetricRow::Gem(GemPoint {
         ts_ms: event.occurred_at_ms,
         event_id: event.event_id,
@@ -250,11 +235,7 @@ fn equipment_down_rows(event: &DomainEvent) -> Vec<MetricRow> {
 
 fn equipment_up_rows(event: &DomainEvent) -> Vec<MetricRow> {
     let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
-    let down_ms = event
-        .payload
-        .get("down_ms")
-        .and_then(serde_json::Value::as_i64)
-        .unwrap_or_default();
+    let down_ms = event.down_ms().unwrap_or_default();
     vec![
         MetricRow::Gem(GemPoint {
             ts_ms: event.occurred_at_ms,
@@ -294,7 +275,7 @@ fn recipe_verified_rows(event: &DomainEvent) -> Vec<MetricRow> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::events::{TrackOutReport, track_out_payload};
+    use crate::events::{EventData, TrackOutReport, track_out_payload};
     use crate::model::RouteStep;
 
     fn route() -> Route {
@@ -316,15 +297,14 @@ mod tests {
         }
     }
 
-    fn event(kind: EventKind, payload: serde_json::Value, eid: Uuid) -> DomainEvent {
-        DomainEvent::new(eid, "LOT-0001", kind, payload, 1_700_000_000_000, "test")
+    fn event(data: EventData, eid: Uuid) -> DomainEvent {
+        DomainEvent::new(eid, "LOT-0001", data, 1_700_000_000_000, "test")
     }
 
     #[test]
     fn a_metrology_track_out_yields_four_rows() {
         let eid = Uuid::nil();
         let event = event(
-            EventKind::TrackOut,
             track_out_payload(&TrackOutReport {
                 step_no: 4,
                 equipment_id: "MET-01",
@@ -354,7 +334,6 @@ mod tests {
     #[test]
     fn every_row_carries_the_event_id_and_the_right_table() {
         let event = event(
-            EventKind::EquipmentDown,
             crate::events::equipment_down_payload("ETC-01", "etch", "arc detected", 2001),
             Uuid::nil(),
         );

@@ -35,6 +35,7 @@ pub struct WaferGenealogy {
 ///
 /// Only events that name wafers are used; a track-out closes the most recent
 /// open track-in for the same step and tool.
+#[must_use]
 pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenealogy> {
     let mut out: Vec<WaferGenealogy> = wafers
         .iter()
@@ -50,7 +51,7 @@ pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenea
         .collect();
 
     for event in events {
-        match event.kind {
+        match event.kind() {
             EventKind::TrackIn => {
                 let Some(step_no) = event.step_no() else {
                     continue;
@@ -58,7 +59,7 @@ pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenea
                 let equipment_id = event.equipment_id().unwrap_or_default().to_owned();
                 let recipe_id = event.recipe_id().unwrap_or_default().to_owned();
                 for wafer_id in event.wafers() {
-                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == wafer_id) {
+                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == *wafer_id) {
                         record.steps.push(WaferStepRecord {
                             step_no,
                             equipment_id: equipment_id.clone(),
@@ -75,17 +76,10 @@ pub fn genealogy_for(wafers: &[Wafer], events: &[DomainEvent]) -> Vec<WaferGenea
                 let Some(step_no) = event.step_no() else {
                     continue;
                 };
-                let duration_ms = event
-                    .payload
-                    .get("duration_ms")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or_default();
-                let measured = event
-                    .payload
-                    .get("measured")
-                    .and_then(serde_json::Value::as_f64);
+                let duration_ms = event.duration_ms().unwrap_or_default();
+                let measured = event.measured();
                 for wafer_id in event.wafers() {
-                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == wafer_id)
+                    if let Some(record) = out.iter_mut().find(|g| g.wafer_id == *wafer_id)
                         && let Some(step) = record
                             .steps
                             .iter_mut()

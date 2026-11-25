@@ -234,7 +234,7 @@ fn run(
         }
         let output = sim.tick(tick_ms);
         for event in &output.events {
-            if event.kind == EventKind::LotCompleted {
+            if event.kind() == EventKind::LotCompleted {
                 completed.push((event.lot_id.clone(), event.occurred_at_ms));
             }
         }
@@ -302,7 +302,7 @@ fn run_from_start(
         }
         let output = sim.tick(sim.scenario().tick_ms.max(1));
         for event in &output.events {
-            if event.kind == EventKind::LotCompleted {
+            if event.kind() == EventKind::LotCompleted {
                 completed.push((event.lot_id.clone(), event.occurred_at_ms));
             }
         }
