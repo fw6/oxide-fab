@@ -1,0 +1,27 @@
+docs/rust-guidelines-review.md
+  s_4855c28dcb0c5e::t_4923903b5ff235 236-239
+docs/verification/lot-lifecycle/LotLifecycle.tla
+  s_4855c28dcb0c5e::t_d981d69230fe2c 4
+docs/verification/lot-lifecycle/README.md
+  s_4855c28dcb0c5e::t_32aab51d8cdb40 4
+scripts/check-consistency.py
+  s_4855c28dcb0c5e::t_f9859eeaf27b41 162-180
+  s_4855c28dcb0c5e::t_4bd15b55413a08 183
+  s_4855c28dcb0c5e::t_156d570249f34c 214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "9243188dc5da7d4ff496e1492b98c23e916df701",
+  "prompts": {},
+  "sessions": {
+    "s_4855c28dcb0c5e": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_46e72969-cec6-4d7f-94a8-df9540ef4aaa",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
