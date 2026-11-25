@@ -1,0 +1,33 @@
+.github/actions/install-nsh/action.yml
+  s_4855c28dcb0c5e::t_751e7f146cebad 1-19
+.github/actions/native-deps/action.yml
+  s_4855c28dcb0c5e::t_574ba06ab08f68 1-42
+.github/workflows/release.yml
+  s_4855c28dcb0c5e::t_c6e51136383d2c 166-168,170-171,173
+scripts/check-consistency.py
+  s_4855c28dcb0c5e::t_f1f9fa1aacc21d 1-145,148,152-154,157,162-212
+  s_4855c28dcb0c5e::t_2d3af6c14c2ef0 146-147,149-151,155-156,158-161
+.github/workflows/ci.yml
+  s_4855c28dcb0c5e::t_bc4c45c25363d2 382
+  s_4855c28dcb0c5e::t_e99732246ed684 144,146
+  s_4855c28dcb0c5e::t_779a12ed4087d3 79-83
+  s_4855c28dcb0c5e::t_9b0527e685be07 84-88
+  s_4855c28dcb0c5e::t_abd52ae410ac27 204
+  s_4855c28dcb0c5e::t_27d55e29e2fc58 229-230,232-233,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "b43ad2c8cf7f340b2fcaaa2e176aa8123cdb7036",
+  "prompts": {},
+  "sessions": {
+    "s_4855c28dcb0c5e": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_46e72969-cec6-4d7f-94a8-df9540ef4aaa",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": null
+    }
+  }
+}
