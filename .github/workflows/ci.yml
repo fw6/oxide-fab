@@ -86,6 +86,22 @@ jobs:
           cargo install cargo-audit --locked
           cargo audit
 
+  models:
+    name: model checks (write path, lot lifecycle)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Each config carries its expected answer: a past defect must fail on the
+      # invariant it broke, and the current code must pass.
+      - name: Model checks
+        run: ./scripts/verify-models.sh
+
   ui:
     name: nsh TSX UI tests, assets and UI workspace lint
     runs-on: ubuntu-latest

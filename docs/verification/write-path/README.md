@@ -3,6 +3,10 @@
 Verified with [everystate](https://github.com/mattzcarey/everystate) 0.4.0
 (`npx everystate`), against `bdef8c0`.
 
+`./scripts/verify-models.sh` runs these configs with their expected answer and
+is a CI job. A config that used to reproduce a defect must still fail on the
+named invariant; `Fixed.cfg` must still pass.
+
 ```sh
 cd docs/verification/write-path
 npx everystate WritePath.tla                              # code as written: fails
