@@ -12,7 +12,7 @@ use std::ops::ControlFlow;
 
 use oxide_core::events::{DomainEvent, EventData, EventKind, TrackInReport, TrackOutReport};
 use oxide_core::model::{
-    Equipment, EquipmentState, Lot, LotState, Route, Wafer, WaferId, WaferState,
+    Equipment, EquipmentState, Lot, LotId, LotState, Route, WaferId, WaferState,
     deterministic_event_id, lot_id_for,
 };
 use oxide_core::scenario::Scenario;
@@ -453,17 +453,31 @@ impl Simulation {
 
     /// Re-apply one persisted event to the state (used after a snapshot).
     ///
-    /// This is the projection half of the simulator: it never schedules
-    /// anything, so the caller decides when to rebuild the heap. One arm per
-    /// `EventKind`, kept together so the vocabulary and its projection can be
-    /// reviewed side by side.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "one arm per event kind; splitting scatters the projection"
-    )]
+    /// The projection is the state machine itself: the command is rebuilt from
+    /// the payload and run through the transition the live engine ran.
+    /// `note_event` then applies the runtime consequences (queues, tool state)
+    /// that live commits also go through, so a replay cannot drift by
+    /// re-implementing a rule the live path already has.
     pub fn apply_event(&mut self, event: &DomainEvent) {
         self.state.now_ms = self.state.now_ms.max(event.occurred_at_ms);
         self.state.event_counter = self.state.event_counter.saturating_add(1);
+        self.replay(event);
+        self.note_event(event);
+    }
+
+    /// Run the transition a logged event records.
+    ///
+    /// The returned events are discarded: the log is already the output. What
+    /// matters is the mutation the transition makes, which is the same one the
+    /// live engine made before it committed the event.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per event kind; each rebuilds the command that produced it"
+    )]
+    fn replay(&mut self, event: &DomainEvent) {
+        let now = event.occurred_at_ms;
+        let actor = event.actor.as_str();
+        let mut ids = EventIds::new(uuid::Uuid::nil());
         match &event.data {
             EventData::LotCreated {
                 product_id,
@@ -472,27 +486,27 @@ impl Simulation {
                 wafers,
                 ..
             } => {
-                let mut lot = Lot::new(
+                let lot = Lot::new(
                     event.lot_id.clone(),
                     product_id,
                     route_id,
                     *priority,
                     wafers.len() as i32,
-                    event.occurred_at_ms,
+                    now,
                 );
-                lot.state = LotState::Created;
-                let wafers: Vec<Wafer> = wafers
-                    .iter()
-                    .enumerate()
-                    .map(|(index, id)| Wafer {
-                        id: id.clone(),
-                        lot_id: event.lot_id.clone(),
-                        slot: index as i32 + 1,
-                        state: WaferState::Created,
-                        defect_info: None,
-                        rework_count: 0,
-                    })
-                    .collect();
+                match LotAggregate::create(lot, wafers.clone(), &mut ids, now, actor) {
+                    Ok(transition) => {
+                        if let Some(aggregate) = transition.children.into_iter().next() {
+                            self.state
+                                .lots
+                                .entry(event.lot_id.clone())
+                                .or_insert(aggregate);
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not create lot");
+                    }
+                }
                 // A replay must also restore the release schedule, or the
                 // engine would re-release the lots it just rebuilt.
                 if let Some(serial) = event
@@ -503,32 +517,16 @@ impl Simulation {
                     self.state.next_lot_serial = self.state.next_lot_serial.max(serial + 1);
                     self.state.released_lots = self.state.released_lots.max(serial as usize);
                 }
-                self.state
-                    .lots
-                    .entry(event.lot_id.clone())
-                    .or_insert_with(|| LotAggregate::new(lot, wafers));
             }
             EventData::LotQueued { step_no } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate.lot.current_step = *step_no;
-                    // A held lot advances its step but stays held and out of
-                    // the queues until release (the same rule as `queue`).
-                    if aggregate.lot.hold_reason.is_none() {
-                        if !aggregate
-                            .wafers
-                            .iter()
-                            .any(|w| w.state == WaferState::Processing)
-                        {
-                            aggregate.lot.state = LotState::Queued;
-                        }
-                        for wafer in &mut aggregate.wafers {
-                            if matches!(
-                                wafer.state,
-                                WaferState::Created | WaferState::Waiting | WaferState::Queued
-                            ) {
-                                wafer.state = WaferState::Queued;
-                            }
-                        }
+                    let result = if aggregate.lot.hold_reason.is_some() {
+                        aggregate.advance_while_held(*step_no, &mut ids, now, actor)
+                    } else {
+                        aggregate.queue(*step_no, &mut ids, now, actor)
+                    };
+                    if let Err(error) = result {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not queue lot");
                     }
                 }
             }
@@ -537,9 +535,7 @@ impl Simulation {
                 checksum,
             } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate
-                        .verified_recipes
-                        .insert(recipe_id.clone(), checksum.clone());
+                    aggregate.verify_recipe(recipe_id, checksum, &mut ids, now, actor);
                 }
             }
             EventData::TrackIn {
@@ -549,13 +545,169 @@ impl Simulation {
                 wafers,
             } => {
                 if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    for wafer in &mut aggregate.wafers {
-                        if wafers.contains(&wafer.id) {
-                            wafer.state = WaferState::Processing;
+                    let result = aggregate.track_in(
+                        TrackInReport {
+                            step_no: *step_no,
+                            equipment_id,
+                            recipe_id,
+                            wafers,
+                        },
+                        &mut ids,
+                        now,
+                        actor,
+                    );
+                    if let Err(error) = result {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not track in");
+                    }
+                }
+            }
+            EventData::TrackOut {
+                step_no,
+                equipment_id,
+                recipe_id,
+                recipe_checksum,
+                wafers,
+                duration_ms,
+                measured,
+            } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
+                    let result = aggregate.track_out(
+                        TrackOutReport {
+                            step_no: *step_no,
+                            equipment_id,
+                            recipe_id,
+                            recipe_checksum,
+                            wafers,
+                            duration_ms: *duration_ms,
+                            measured: *measured,
+                        },
+                        &mut ids,
+                        now,
+                        actor,
+                    );
+                    if let Err(error) = result {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not track out");
+                    }
+                }
+            }
+            EventData::LotCompleted { step_no } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && !aggregate.lot.state.is_terminal()
+                {
+                    // A scrap of the last wafer already completed the lot in
+                    // the same batch; the log carries both events.
+                    if let Err(error) = aggregate.complete(*step_no, &mut ids, now, actor) {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not complete lot");
+                    }
+                }
+            }
+            EventData::LotHeld { reason, .. } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && let Err(error) = aggregate.hold(reason, &mut ids, now, actor)
+                {
+                    tracing::warn!(%error, lot = %event.lot_id, "replay could not hold lot");
+                }
+            }
+            EventData::LotReleased { .. } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && let Err(error) = aggregate.release(&mut ids, now, actor)
+                {
+                    tracing::warn!(%error, lot = %event.lot_id, "replay could not release lot");
+                }
+            }
+            EventData::ReworkStarted {
+                to_step, reason, ..
+            } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && let Err(error) = aggregate.rework(*to_step, reason, &mut ids, now, actor)
+                {
+                    tracing::warn!(%error, lot = %event.lot_id, "replay could not rework lot");
+                }
+            }
+            EventData::WaferScrapped {
+                wafer_id, reason, ..
+            } => {
+                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
+                    && let Err(error) =
+                        aggregate.scrap_wafer(wafer_id, reason, &mut ids, now, actor)
+                {
+                    tracing::warn!(%error, lot = %event.lot_id, "replay could not scrap wafer");
+                }
+            }
+            EventData::LotSplit { children, .. } => {
+                let child_ids: Vec<LotId> =
+                    children.iter().map(|child| child.lot_id.clone()).collect();
+                let split = self
+                    .state
+                    .lots
+                    .get_mut(&event.lot_id)
+                    .map(|aggregate| aggregate.split(&child_ids, &mut ids, now, actor));
+                match split {
+                    Some(Ok(transition)) => {
+                        for child in transition.children {
+                            self.state.lots.insert(child.lot.id.clone(), child);
                         }
                     }
-                    aggregate.lot.state = LotState::Processing;
+                    Some(Err(error)) => {
+                        tracing::warn!(%error, lot = %event.lot_id, "replay could not split lot");
+                    }
+                    None => {}
                 }
+            }
+            EventData::LotMerged { target_lot_id, .. } => {
+                let Some(mut source) = self.state.lots.remove(&event.lot_id) else {
+                    return;
+                };
+                let merged = self.state.lots.get_mut(target_lot_id).map(|target| {
+                    target.merge(std::slice::from_mut(&mut source), &mut ids, now, actor)
+                });
+                match merged {
+                    Some(Ok(_)) => {}
+                    Some(Err(error)) => {
+                        tracing::warn!(%error, source = %event.lot_id, "replay could not merge lot");
+                    }
+                    None => {
+                        tracing::warn!(target = %target_lot_id, "replay merge target is missing");
+                    }
+                }
+                self.state.lots.insert(source.lot.id.clone(), source);
+            }
+            // A retry changes nothing by definition, and tool state is
+            // runtime: neither has a command to replay.
+            EventData::TrackOutDuplicate { .. }
+            | EventData::EquipmentDown { .. }
+            | EventData::EquipmentUp { .. } => {}
+        }
+    }
+
+    /// Apply the runtime consequences of a committed event.
+    ///
+    /// Live commits and replays both call this, so queues and tool state have
+    /// one implementation. Scheduling and the dispatch log stay with the live
+    /// path: they are views of a run, not state a snapshot restores.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "one arm per event kind; splitting scatters the runtime projection"
+    )]
+    fn note_event(&mut self, event: &DomainEvent) {
+        match &event.data {
+            EventData::LotQueued { step_no } => {
+                let held = self
+                    .state
+                    .lots
+                    .get(&event.lot_id)
+                    .is_some_and(|aggregate| aggregate.lot.hold_reason.is_some());
+                if !held {
+                    self.enqueue_lot(&event.lot_id, *step_no);
+                }
+            }
+            EventData::TrackIn {
+                step_no,
+                equipment_id,
+                recipe_id,
+                wafers,
+            } => {
+                self.remove_from_queues(&event.lot_id);
                 if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
                     let duration = self.route.step(*step_no).map_or(0, |step| step.duration_ms);
                     runtime.equipment.state = EquipmentState::Running;
@@ -566,179 +718,66 @@ impl Simulation {
                     runtime.busy_until_ms = event.occurred_at_ms + duration;
                 }
             }
-            EventData::TrackOut {
-                step_no,
-                equipment_id,
-                wafers,
-                ..
-            } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    for wafer in &mut aggregate.wafers {
-                        if wafers.contains(&wafer.id) {
-                            wafer.state = WaferState::Waiting;
-                        }
-                    }
-                    let done = aggregate.completed.entry(*step_no).or_default();
-                    for id in wafers {
-                        if !done.contains(id) {
-                            done.push(id.clone());
-                        }
-                    }
-                    aggregate.lot.state = if aggregate.lot.hold_reason.is_some() {
-                        LotState::OnHold
-                    } else if aggregate
-                        .wafers
-                        .iter()
-                        .any(|w| w.state == WaferState::Processing)
-                    {
-                        LotState::Processing
-                    } else {
-                        LotState::Waiting
-                    };
-                }
+            EventData::TrackOut { equipment_id, .. } => {
                 if let Some(runtime) = self.state.equipment.get_mut(equipment_id) {
                     runtime.equipment.state = EquipmentState::Idle;
                     runtime.busy_lot = None;
                     runtime.busy_wafers.clear();
+                    runtime.busy_until_ms = 0;
                     runtime.lots_processed += 1;
                 }
             }
-            EventData::LotCompleted { .. } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    for wafer in &mut aggregate.wafers {
-                        if wafer.state != WaferState::Scrapped {
-                            wafer.state = WaferState::Done;
-                        }
-                    }
-                    aggregate.lot.hold_reason = None;
-                    aggregate.lot.state = LotState::Completed;
-                }
-            }
-            EventData::LotHeld { reason, .. } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate.lot.state = LotState::OnHold;
-                    aggregate.lot.hold_reason = Some(reason.clone());
-                }
+            EventData::LotHeld { .. } | EventData::LotCompleted { .. } => {
+                self.remove_from_queues(&event.lot_id);
             }
             EventData::LotReleased { .. } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    let busy = aggregate
-                        .wafers
-                        .iter()
-                        .any(|w| w.state == WaferState::Processing);
-                    aggregate.lot.state = if busy {
-                        LotState::Processing
-                    } else {
-                        LotState::Queued
-                    };
-                    aggregate.lot.hold_reason = None;
-                    for wafer in &mut aggregate.wafers {
-                        if matches!(wafer.state, WaferState::Created | WaferState::Waiting) {
-                            wafer.state = WaferState::Queued;
-                        }
-                    }
+                let Some(aggregate) = self.state.lots.get(&event.lot_id) else {
+                    return;
+                };
+                if !aggregate
+                    .wafers
+                    .iter()
+                    .any(|wafer| wafer.state == WaferState::Processing)
+                {
+                    self.enqueue_lot(&event.lot_id, aggregate.lot.current_step);
                 }
             }
             EventData::ReworkStarted { to_step, .. } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id) {
-                    aggregate.lot.current_step = *to_step;
-                    if aggregate.lot.hold_reason.is_none() {
-                        aggregate.lot.state = LotState::Waiting;
-                    }
-                    aggregate.completed.retain(|step, _| *step < *to_step);
-                    for wafer in &mut aggregate.wafers {
-                        if wafer.state != WaferState::Scrapped {
-                            wafer.state = WaferState::Waiting;
-                            wafer.rework_count += 1;
-                        }
-                    }
-                }
-            }
-            EventData::WaferScrapped {
-                wafer_id, reason, ..
-            } => {
-                if let Some(aggregate) = self.state.lots.get_mut(&event.lot_id)
-                    && let Some(wafer) = aggregate.wafers.iter_mut().find(|w| w.id == *wafer_id)
-                {
-                    wafer.state = WaferState::Scrapped;
-                    wafer.defect_info = Some(reason.clone());
-                }
-            }
-            EventData::LotSplit { children, .. } => {
-                let parent_wafers: Vec<Wafer> = self
+                self.remove_from_queues(&event.lot_id);
+                let held = self
                     .state
                     .lots
                     .get(&event.lot_id)
-                    .map_or_default(|a| a.wafers.clone());
-                let parent_lot = self.state.lots.get(&event.lot_id).map_or_else(
-                    || {
-                        Lot::new(
-                            &event.lot_id,
-                            "",
-                            &self.route.id,
-                            0,
-                            0,
-                            event.occurred_at_ms,
-                        )
-                    },
-                    |a| a.lot.clone(),
-                );
-                if let Some(parent) = self.state.lots.get_mut(&event.lot_id) {
-                    parent.wafers.clear();
-                    parent.lot.wafer_count = 0;
-                    parent.lot.hold_reason = None;
-                    parent.lot.state = LotState::Split;
-                }
-                for child in children {
-                    let mut lot = parent_lot.clone();
-                    lot.id.clone_from(&child.lot_id);
-                    lot.parent_lot_id = Some(event.lot_id.clone());
-                    lot.wafer_count = child.wafers.len() as i32;
-                    lot.state = LotState::Waiting;
-                    let mut wafers: Vec<Wafer> = parent_wafers
-                        .iter()
-                        .filter(|w| child.wafers.contains(&w.id))
-                        .cloned()
-                        .collect();
-                    for (index, wafer) in wafers.iter_mut().enumerate() {
-                        wafer.lot_id.clone_from(&child.lot_id);
-                        wafer.slot = index as i32 + 1;
-                        wafer.state = WaferState::Waiting;
-                    }
-                    self.state
-                        .lots
-                        .insert(child.lot_id.clone(), LotAggregate::new(lot, wafers));
+                    .is_some_and(|aggregate| aggregate.lot.hold_reason.is_some());
+                if !held {
+                    self.enqueue_lot(&event.lot_id, *to_step);
                 }
             }
-            EventData::LotMerged {
-                target_lot_id,
-                wafers,
-                ..
-            } => {
-                let mut taken: Vec<Wafer> = Vec::new();
-                if let Some(source) = self.state.lots.get_mut(&event.lot_id) {
-                    taken = source
-                        .wafers
-                        .iter()
-                        .filter(|w| wafers.contains(&w.id))
-                        .cloned()
-                        .collect();
-                    source.wafers.retain(|w| !wafers.contains(&w.id));
-                    source.lot.state = LotState::Merged;
-                    source.lot.hold_reason = None;
-                    source.lot.wafer_count = 0;
+            EventData::LotSplit { .. } => {
+                self.remove_from_queues(&event.lot_id);
+                let children: Vec<(String, i32)> = self
+                    .state
+                    .lots
+                    .values()
+                    .filter(|aggregate| {
+                        aggregate.lot.parent_lot_id.as_deref() == Some(event.lot_id.as_str())
+                    })
+                    .map(|aggregate| (aggregate.lot.id.clone(), aggregate.lot.current_step))
+                    .collect();
+                for (child_id, step_no) in children {
+                    self.enqueue_lot(&child_id, step_no);
                 }
-                if let Some(target) = self.state.lots.get_mut(target_lot_id) {
-                    for mut wafer in taken {
-                        wafer.lot_id.clone_from(target_lot_id);
-                        wafer.slot = target.wafers.len() as i32 + 1;
-                        wafer.state = WaferState::Waiting;
-                        target.wafers.push(wafer);
-                    }
-                    target.lot.wafer_count = target.wafers.len() as i32;
-                    // The merge itself releases the target, exactly as `merge` does.
-                    target.lot.hold_reason = None;
-                    target.lot.state = LotState::Waiting;
+            }
+            EventData::LotMerged { target_lot_id, .. } => {
+                self.remove_from_queues(&event.lot_id);
+                if let Some(step_no) = self
+                    .state
+                    .lots
+                    .get(target_lot_id)
+                    .map(|aggregate| aggregate.lot.current_step)
+                {
+                    self.remove_from_queues(target_lot_id);
+                    self.enqueue_lot(target_lot_id, step_no);
                 }
             }
             EventData::EquipmentDown { equipment_id, .. } => {
@@ -755,7 +794,14 @@ impl Simulation {
                     runtime.down_until_ms = 0;
                 }
             }
-            EventData::TrackOutDuplicate { .. } => {}
+            _ => {}
+        }
+    }
+
+    fn enqueue_lot(&mut self, lot_id: &str, step_no: i32) {
+        let queue = self.state.queues.entry(step_no).or_default();
+        if !queue.iter().any(|id| id == lot_id) {
+            queue.push_back(lot_id.to_owned());
         }
     }
 
@@ -804,12 +850,10 @@ impl Simulation {
                         }
                     }
                     self.advance_counter(ids.used());
+                    for event in &queued_events {
+                        self.note_event(event);
+                    }
                     output.events.extend(queued_events);
-                    self.state
-                        .queues
-                        .entry(first)
-                        .or_default()
-                        .push_back(lot_id.clone());
                 }
                 Err(error) => {
                     tracing::warn!(%error, "could not create lot");
@@ -903,7 +947,6 @@ impl Simulation {
         match transition {
             Ok(transition) => {
                 self.advance_counter(ids.used());
-                output.events.extend(transition.events.clone());
                 if let Some(event) = transition.events.first()
                     && event.kind() == EventKind::TrackOut
                 {
@@ -913,6 +956,10 @@ impl Simulation {
                         equipment_id: equipment_id.to_owned(),
                     });
                 }
+                for event in &transition.events {
+                    self.note_event(event);
+                }
+                output.events.extend(transition.events);
             }
             Err(error) => {
                 tracing::warn!(%error, lot = lot_id, step = step_no, "track-out refused");
@@ -957,7 +1004,6 @@ impl Simulation {
             runtime.busy_lot = None;
             runtime.busy_wafers.clear();
             runtime.busy_until_ms = 0;
-            runtime.lots_processed += 1;
         }
     }
 
@@ -973,6 +1019,9 @@ impl Simulation {
         match advanced {
             Some(Ok(transition)) => {
                 self.advance_counter(ids.used());
+                for event in &transition.events {
+                    self.note_event(event);
+                }
                 output.events.extend(transition.events);
             }
             Some(Err(error)) => {
@@ -999,6 +1048,9 @@ impl Simulation {
         };
         if let Some(transition) = completed {
             self.advance_counter(ids.used());
+            for event in &transition.events {
+                self.note_event(event);
+            }
             output.events.extend(transition.events);
         }
     }
@@ -1023,11 +1075,10 @@ impl Simulation {
         }
         if queued {
             self.advance_counter(ids.used());
-            output.events.extend(events);
-            let queue = self.state.queues.entry(step_no).or_default();
-            if !queue.iter().any(|id| id == lot_id) {
-                queue.push_back(lot_id.to_owned());
+            for event in &events {
+                self.note_event(event);
             }
+            output.events.extend(events);
         }
     }
 
@@ -1042,17 +1093,16 @@ impl Simulation {
         }
         let down_ms = (now_ms - runtime.down_since_ms).max(0);
         let kind = runtime.equipment.kind.clone();
-        runtime.equipment.state = EquipmentState::Idle;
-        runtime.down_since_ms = 0;
-        runtime.down_until_ms = 0;
-        output.events.push(equipment_up(
+        let event = equipment_up(
             equipment_id,
             &kind,
             down_ms,
             event_id,
             now_ms,
             "maintenance",
-        ));
+        );
+        self.note_event(&event);
+        output.events.push(event);
     }
 
     /// Hand-written dispatch: priority first, then FIFO, then a qualified
@@ -1136,30 +1186,20 @@ impl Simulation {
                 "dispatcher",
             )
         };
-        match tracked {
-            Ok(transition) => {
-                self.advance_counter(ids.used());
-                output.events.extend(transition.events);
-            }
+        let transition = match tracked {
+            Ok(transition) => transition,
             Err(error) => {
                 tracing::warn!(%error, lot = lot_id, step = step_no, "track-in refused");
                 self.dequeue(step_no, lot_id);
                 return ControlFlow::Continue(());
             }
-        }
+        };
+        self.advance_counter(ids.used());
         output.secs.push(SecsTrigger::ProcessStarted {
             lot_id: lot_id.to_owned(),
             step_no,
             equipment_id: equipment_id.clone(),
         });
-        if let Some(runtime) = self.state.equipment.get_mut(&equipment_id) {
-            runtime.equipment.state = EquipmentState::Running;
-            runtime.busy_lot = Some(lot_id.to_owned());
-            runtime.busy_step = step_no;
-            runtime.busy_recipe.clone_from(&step.recipe_id);
-            runtime.busy_wafers.clone_from(&wanted);
-            runtime.busy_until_ms = self.state.now_ms + step.duration_ms;
-        }
         let (queue_position, queue_len) = self.state.queues.get(&step_no).map_or((0, 0), |queue| {
             (
                 queue
@@ -1188,7 +1228,10 @@ impl Simulation {
         if self.state.dispatch.len() > 64 {
             self.state.dispatch.remove(0);
         }
-        self.dequeue(step_no, lot_id);
+        for event in &transition.events {
+            self.note_event(event);
+        }
+        output.events.extend(transition.events);
         self.schedule(
             self.state.now_ms + step.duration_ms,
             ScheduledKind::StepComplete {
@@ -1321,10 +1364,7 @@ impl Simulation {
             return;
         };
         let kind = runtime.equipment.kind.clone();
-        runtime.equipment.state = EquipmentState::Down;
-        runtime.down_since_ms = now_ms;
-        runtime.down_until_ms = now_ms + repair_ms;
-        output.events.push(equipment_down(
+        let event = equipment_down(
             equipment_id,
             &kind,
             "simulated chamber fault",
@@ -1332,7 +1372,9 @@ impl Simulation {
             event_id,
             now_ms,
             "equipment",
-        ));
+        );
+        self.note_event(&event);
+        output.events.push(event);
         output.secs.push(SecsTrigger::Alarm {
             equipment_id: equipment_id.to_owned(),
             alid: 2001,
@@ -1580,31 +1622,22 @@ impl Simulation {
             .hold(reason, &mut ids, now_ms, "operator")?
             .events;
         self.advance_counter(ids.used());
-        self.remove_from_queues(lot_id);
+        for event in &events {
+            self.note_event(event);
+        }
         Ok(events)
     }
 
     pub fn release_lot(&mut self, lot_id: &str) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let (events, step, busy) = {
-            let aggregate = self.aggregate_mut(lot_id)?;
-            let transition = aggregate.release(&mut ids, now_ms, "operator")?;
-            (
-                transition.events,
-                aggregate.lot.current_step,
-                aggregate.lot.state == LotState::Processing,
-            )
-        };
+        let events = self
+            .aggregate_mut(lot_id)?
+            .release(&mut ids, now_ms, "operator")?
+            .events;
         self.advance_counter(ids.used());
-        // Material still on a tool is not queued: the step finishes on its own
-        // and queues the lot at the next step.
-        if !busy {
-            self.state
-                .queues
-                .entry(step)
-                .or_default()
-                .push_back(lot_id.to_owned());
+        for event in &events {
+            self.note_event(event);
         }
         Ok(events)
     }
@@ -1617,21 +1650,13 @@ impl Simulation {
     ) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let (events, held) = {
-            let aggregate = self.aggregate_mut(lot_id)?;
-            let transition = aggregate.rework(to_step, reason, &mut ids, now_ms, "engineer")?;
-            (transition.events, aggregate.lot.hold_reason.is_some())
-        };
+        let events = self
+            .aggregate_mut(lot_id)?
+            .rework(to_step, reason, &mut ids, now_ms, "engineer")?
+            .events;
         self.advance_counter(ids.used());
-        self.remove_from_queues(lot_id);
-        // A reworked lot that is still on hold waits for release, like any
-        // other held lot.
-        if !held {
-            self.state
-                .queues
-                .entry(to_step)
-                .or_default()
-                .push_back(lot_id.to_owned());
+        for event in &events {
+            self.note_event(event);
         }
         Ok(events)
     }
@@ -1644,15 +1669,13 @@ impl Simulation {
     ) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let (events, terminal) = {
-            let aggregate = self.aggregate_mut(lot_id)?;
-            let transition =
-                aggregate.scrap_wafer(wafer_id, reason, &mut ids, now_ms, "engineer")?;
-            (transition.events, aggregate.lot.state.is_terminal())
-        };
+        let events = self
+            .aggregate_mut(lot_id)?
+            .scrap_wafer(wafer_id, reason, &mut ids, now_ms, "engineer")?
+            .events;
         self.advance_counter(ids.used());
-        if terminal {
-            self.remove_from_queues(lot_id);
+        for event in &events {
+            self.note_event(event);
         }
         Ok(events)
     }
@@ -1670,15 +1693,11 @@ impl Simulation {
             (transition.events, transition.children)
         };
         self.advance_counter(ids.used());
-        self.remove_from_queues(lot_id);
         for child in children {
-            let step = child.lot.current_step;
-            self.state
-                .queues
-                .entry(step)
-                .or_default()
-                .push_back(child.lot.id.clone());
             self.state.lots.insert(child.lot.id.clone(), child);
+        }
+        for event in &events {
+            self.note_event(event);
         }
         Ok(events)
     }
@@ -1706,15 +1725,14 @@ impl Simulation {
 
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
-        let (merged, step) = {
+        let merged = {
             let Some(target) = self.state.lots.get_mut(target_lot) else {
                 for source in sources {
                     self.state.lots.insert(source.lot.id.clone(), source);
                 }
                 return Err(SimError::UnknownLot(target_lot.to_owned()));
             };
-            let merged = target.merge(&mut sources, &mut ids, now_ms, "operator");
-            (merged, target.lot.current_step)
+            target.merge(&mut sources, &mut ids, now_ms, "operator")
         };
         self.advance_counter(ids.used());
         match merged {
@@ -1728,15 +1746,11 @@ impl Simulation {
             }
             Ok(transition) => {
                 for source in sources {
-                    self.remove_from_queues(&source.lot.id);
                     self.state.lots.insert(source.lot.id.clone(), source);
                 }
-                self.remove_from_queues(target_lot);
-                self.state
-                    .queues
-                    .entry(step)
-                    .or_default()
-                    .push_back(target_lot.to_owned());
+                for event in &transition.events {
+                    self.note_event(event);
+                }
                 Ok(transition.events)
             }
         }
@@ -1990,6 +2004,80 @@ mod tests {
             lots,
             "a replay must not release the same lots again"
         );
+    }
+
+    /// The live engine and a replay must rebuild identical lot aggregates and
+    /// queues. This is the regression the split used to fail: the live path
+    /// copied `verified_recipes` and `completed` into the children, the replay
+    /// projection built them empty.
+    #[test]
+    fn replaying_the_log_after_a_split_rebuilds_the_same_lots() {
+        let scenario = scenario();
+        let mut sim = Simulation::new(scenario.clone()).unwrap();
+        let mut ids = sim.ids_base();
+        let lot = Lot::new("LOT-0001", "PRD-OXIDE-300", &sim.route.id, 5, 4, 0);
+        let wafers: Vec<WaferId> = (1..=4).map(|slot| format!("LOT-0001-W{slot:02}")).collect();
+        let created = LotAggregate::create(lot, wafers, &mut ids, 0, "mes").unwrap();
+        let mut events = created.events;
+        let mut aggregate = created.children.into_iter().next().unwrap();
+        events.push(
+            aggregate
+                .verify_recipe("RCP-CLEAN", "checksum", &mut ids, 0, "mes")
+                .events[0]
+                .clone(),
+        );
+        events.extend(aggregate.queue(1, &mut ids, 0, "mes").unwrap().events);
+        sim.state.lots.insert("LOT-0001".to_owned(), aggregate);
+        let children = ["LOT-0001-A".to_owned(), "LOT-0001-B".to_owned()];
+        events.extend(sim.split_lot("LOT-0001", &children).unwrap());
+
+        let mut fresh = Simulation::new(scenario).unwrap();
+        fresh.state.now_ms = sim.state.now_ms;
+        for event in &events {
+            fresh.apply_event(event);
+        }
+        assert_eq!(fresh.state.lots.len(), sim.state.lots.len());
+        for (id, live) in &sim.state.lots {
+            let replayed = fresh
+                .state
+                .lots
+                .get(id)
+                .unwrap_or_else(|| panic!("replay has no lot {id}"));
+            assert_eq!(replayed.lot, live.lot, "lot {id}");
+            assert_eq!(replayed.wafers, live.wafers, "lot {id}");
+            assert_eq!(
+                replayed.verified_recipes, live.verified_recipes,
+                "verified recipes of lot {id}"
+            );
+            assert_eq!(
+                replayed.completed, live.completed,
+                "completed steps of lot {id}"
+            );
+        }
+        assert_eq!(fresh.state.queues, sim.state.queues, "queues");
+    }
+
+    /// A whole run and its replay must agree on every piece of runtime state
+    /// the log claims to describe.
+    #[test]
+    fn a_live_run_and_its_replay_agree_on_lots_queues_and_tools() {
+        let mut scenario = scenario();
+        scenario.lot_count = 2;
+        let mut sim = Simulation::new(scenario.clone()).unwrap();
+        let mut events = Vec::new();
+        for _ in 0..160 {
+            events.extend(sim.tick(100).events);
+        }
+        assert!(!events.is_empty(), "the run produced events");
+
+        let mut fresh = Simulation::new(scenario).unwrap();
+        fresh.state.now_ms = sim.state.now_ms;
+        for event in &events {
+            fresh.apply_event(event);
+        }
+        assert_eq!(fresh.state.lots, sim.state.lots, "lots");
+        assert_eq!(fresh.state.queues, sim.state.queues, "queues");
+        assert_eq!(fresh.state.equipment, sim.state.equipment, "equipment");
     }
 
     /// An unknown source id must not consume the sources that were already

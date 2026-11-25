@@ -559,8 +559,11 @@ impl LotAggregate {
             }
         }
         let entry = self.completed.entry(step_no).or_default();
-        for id in &selected_owned {
-            if !entry.contains(id) {
+        // Iterate the report, not the membership set: `HashSet` order is
+        // randomized, and this vector is part of the snapshot, so two runs of
+        // the same log would otherwise serialize differently.
+        for id in wafers {
+            if selected_owned.contains(id) && !entry.contains(id) {
                 entry.push(id.clone());
             }
         }
