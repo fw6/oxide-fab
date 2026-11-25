@@ -6,11 +6,8 @@
 //! one transaction. The time series store is fed only from these events, which
 //! is what makes it reconstructible.
 //!
-//! The payload is typed. `EventData` has one variant per `EventKind`, so a
-//! writer cannot build a `track_out` with a `lot_created` payload, a reader
-//! matches the fields it needs instead of fishing keys out of JSON, and a new
-//! kind fails to compile until it has a variant, a serializer arm and a
-//! projection arm.
+//! The payload is typed: `EventData` has one variant per `EventKind`, so a
+//! writer cannot pair a `track_out` with a `lot_created` payload.
 
 use std::fmt;
 
@@ -149,14 +146,12 @@ pub enum EventData {
     },
 }
 
-/// One child of a split, as the event records it.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SplitChild {
     pub lot_id: LotId,
     pub wafers: Vec<WaferId>,
 }
 
-/// A payload that does not match its `EventKind`.
 #[derive(Debug)]
 pub struct PayloadError {
     kind: EventKind,
@@ -339,7 +334,6 @@ impl EventData {
     }
 }
 
-/// One immutable domain event.
 #[derive(Debug, Clone, PartialEq)]
 pub struct DomainEvent {
     pub event_id: Uuid,
@@ -428,7 +422,6 @@ impl DomainEvent {
         self.data.equipment_id()
     }
 
-    /// The process program the step ran.
     #[must_use]
     pub fn recipe_id(&self) -> Option<&str> {
         self.data.recipe_id()
@@ -534,9 +527,6 @@ impl<'de> Deserialize<'de> for DomainEvent {
     }
 }
 
-// Payload constructors keep the wire shape in one place: the projection and
-// the metric derivation both read these fields.
-
 #[must_use]
 pub fn lot_created_payload(
     product_id: &str,
@@ -559,10 +549,6 @@ pub fn lot_queued_payload(step_no: i32) -> EventData {
 }
 
 /// What a tool reports when it loads a lot on a step.
-///
-/// One value instead of four positional parameters: the payload constructor
-/// and the state machine take the same struct, so the wire shape cannot drift
-/// from what the transition validated.
 #[derive(Debug, Clone, Copy)]
 pub struct TrackInReport<'a> {
     pub step_no: i32,
@@ -730,7 +716,6 @@ mod tests {
         ]
     }
 
-    /// The wire shape is the contract with PostgreSQL and the TSX fold.
     #[test]
     fn every_event_serialises_to_its_published_shape() {
         for data in every_kind() {

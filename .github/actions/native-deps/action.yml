@@ -13,9 +13,7 @@ inputs:
 runs:
   using: composite
   steps:
-    # `/var/cache/apt/archives` is root-owned, so caching that path never
-    # saved (tar failed on `partial`/`lock`). This path is runner-owned. The
-    # key hashes this file, so changing the package list invalidates the cache.
+    # Runner-owned: the system apt cache is root-owned and cannot be tarred.
     - name: Cache apt archives
       uses: actions/cache@v4
       with:
@@ -26,8 +24,6 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # A stalled mirror once parked the job for half an hour: fail or retry
-        # instead of waiting on a dead connection.
         mkdir -p "$HOME/apt-archives/partial"
         options=(
           -o Dir::Cache::archives="$HOME/apt-archives"

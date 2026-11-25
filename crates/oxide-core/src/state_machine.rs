@@ -2,9 +2,7 @@
 //!
 //! A lot moves through `created → queued → processing → waiting → … →
 //! completed`. Every transition is a method that returns the events describing
-//! it, or an error explaining why it is illegal. There is no other way to
-//! mutate a lot: the simulator, the API and the tests all go through here, so
-//! an illegal move cannot reach the event log.
+//! it, or an error explaining why it is illegal.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -33,9 +31,6 @@ impl EventIds {
     }
 
     /// The next id of this set.
-    ///
-    /// Named `next_id`, not `next`: the id stream never ends, so it is not an
-    /// `Iterator`.
     pub fn next_id(&mut self) -> Uuid {
         let id = Uuid::from_u128(self.base.as_u128().wrapping_add(self.offset as u128));
         self.offset += 1;
@@ -50,7 +45,6 @@ impl EventIds {
     }
 }
 
-/// Why a transition was refused.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransitionError {
     IllegalState {
@@ -120,7 +114,6 @@ impl fmt::Display for TransitionError {
 
 impl std::error::Error for TransitionError {}
 
-/// What a transition produced.
 #[derive(Debug, Clone, Default)]
 pub struct Transition {
     pub events: Vec<DomainEvent>,
@@ -135,13 +128,11 @@ impl Transition {
     }
 }
 
-/// A lot plus its wafers: the consistency boundary of the state machine.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LotAggregate {
     pub lot: Lot,
     pub wafers: Vec<Wafer>,
-    /// Wafers that finished each step. A track-out whose wafers are all in
-    /// this set is a retry from the tool, and changes nothing.
+    /// Wafers that finished each step, by step.
     pub completed: HashMap<i32, Vec<WaferId>>,
     /// Recipe checksums verified for this lot (`recipe_id → checksum`).
     pub verified_recipes: HashMap<String, String>,
@@ -156,12 +147,6 @@ impl LotAggregate {
             completed: HashMap::new(),
             verified_recipes: HashMap::new(),
         }
-    }
-
-    /// The highest step every active wafer has finished, if any.
-    #[must_use]
-    pub fn last_completed_step(&self) -> i32 {
-        self.completed.keys().copied().max().unwrap_or(0)
     }
 
     /// Create a lot and its wafers. The created aggregate is returned in
@@ -221,8 +206,8 @@ impl LotAggregate {
             .any(|w| w.id == wafer_id && w.state != WaferState::Scrapped)
     }
 
-    /// A hold only ends by release or by the lot ending; every other transition
-    /// keeps it. This is the one predicate for that rule.
+    /// A hold ends only by release, completion, split or merge; a finished
+    /// step keeps it.
     fn held(&self) -> bool {
         self.lot.hold_reason.is_some()
     }
@@ -232,7 +217,6 @@ impl LotAggregate {
         self.active_wafers().count()
     }
 
-    /// Put the lot in the queue of `step_no`.
     pub fn queue(
         &mut self,
         step_no: i32,
@@ -385,7 +369,6 @@ impl LotAggregate {
         })
     }
 
-    /// Send the lot back to an earlier step (a rework).
     pub fn rework(
         &mut self,
         to_step: i32,
@@ -417,7 +400,6 @@ impl LotAggregate {
                 wafer.rework_count += 1;
             }
         }
-        // Everything from the rework target onwards has to be redone.
         self.completed.retain(|step, _| *step < to_step);
         self.lot.state = if held {
             LotState::OnHold
@@ -861,8 +843,6 @@ impl LotAggregate {
             source.lot.state = LotState::Merged;
             source.lot.hold_reason = None;
             source.lot.wafer_count = 0;
-            // The moved wafers live in the target now; a source that kept them
-            // would show duplicated material until a replay corrected it.
             source.wafers.clear();
             events.push(DomainEvent::new(
                 ids.next_id(),
@@ -905,7 +885,6 @@ impl LotAggregate {
     }
 }
 
-/// Equipment transitions are small enough to live beside the lot machine.
 #[must_use]
 pub fn equipment_down(
     equipment_id: &str,
@@ -1384,7 +1363,6 @@ mod tests {
         assert_eq!(lot.lot.state, LotState::Completed);
         assert!(lot.lot.hold_reason.is_none());
 
-        // A retry on the same wafer changes nothing and writes nothing.
         let retry = lot
             .scrap_wafer(&wafers[1], "again", &mut ids, 12, "engineer")
             .unwrap();

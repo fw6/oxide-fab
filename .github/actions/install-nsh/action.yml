@@ -1,5 +1,5 @@
 name: Install nsh
-description: Install the pinned nsh release and put it on PATH.
+description: Install nsh and put it on PATH. The installer serves the latest release.
 
 runs:
   using: composite

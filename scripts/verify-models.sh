@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# Every model config has a known answer.
-#
-# A config that replays a past defect must fail on the invariant that defect
-# broke, with TLC's exit code 12. A config that describes the current code must
-# pass. A model edit that quietly weakens a check fails here before it can be
-# trusted.
+# Each config carries its expected answer; a weakened model fails here.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."

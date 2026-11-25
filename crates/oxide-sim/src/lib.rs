@@ -1,10 +1,4 @@
 //! Discrete-event simulation engine.
-//!
-//! The engine keeps a `BinaryHeap` of scheduled events, one queue per route
-//! step and a bucket of tools per equipment kind. Every tick advances the
-//! simulated clock, drains the events that became due and dispatches material
-//! with hand-written rules: FIFO within a priority class, a qualification
-//! matrix, and a verified recipe. No solver, no per-item thread.
 
 use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap, VecDeque};
@@ -22,10 +16,6 @@ use oxide_core::state_machine::{
 use serde::{Deserialize, Serialize};
 
 /// Why the simulator refused an operation.
-///
-/// The API maps these onto status codes: an unknown lot is a 404, an illegal
-/// transition or a self-merge is a 400, and a bad scenario is the server's own
-/// fault. A `String` could not carry that distinction.
 #[derive(Debug, thiserror::Error)]
 pub enum SimError {
     #[error("unknown lot {0}")]
@@ -71,14 +61,12 @@ pub enum SecsTrigger {
     },
 }
 
-/// What one tick produced: domain events to persist, SECS messages to send.
 #[derive(Debug, Default, Clone)]
 pub struct TickOutput {
     pub events: Vec<DomainEvent>,
     pub secs: Vec<SecsTrigger>,
 }
 
-/// How the dispatcher chooses among eligible lots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum DispatchRule {
@@ -99,10 +87,6 @@ impl DispatchRule {
     }
 }
 
-/// One dispatch decision, with the inputs that produced it.
-///
-/// This is the read model behind "every dispatch shows the rule it hit": the
-/// priority, the queue it came from and the tool that was qualified for it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DispatchDecision {
     pub at_ms: i64,
@@ -152,7 +136,6 @@ impl PartialOrd for Scheduled {
     }
 }
 
-/// A tool on the simulated floor.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EquipmentRuntime {
     pub equipment: Equipment,
@@ -181,7 +164,6 @@ impl EquipmentRuntime {
         }
     }
 
-    /// Green when producing, amber when held for maintenance, red when down.
     #[must_use]
     pub fn light(&self) -> &'static str {
         match self.equipment.state {
@@ -192,7 +174,6 @@ impl EquipmentRuntime {
     }
 }
 
-/// Everything needed to resume a simulation: no heap, no handles.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SimState {
     pub now_ms: i64,
@@ -208,24 +189,18 @@ pub struct SimState {
     pub running: bool,
     pub speed: f64,
     pub persisted_events: u64,
-    /// The `lot_event.seq` this state corresponds to. It is written next to
-    /// the state so a snapshot cannot claim a log position the state does not
-    /// contain.
+    /// The `lot_event.seq` this state reflects.
     #[serde(default)]
     pub last_seq: i64,
-    /// The most recent dispatch decisions, newest last. In-memory only: it is
-    /// a view of the log, not a second source of truth, and snapshots carry it
-    /// as a convenience.
+    /// The most recent dispatch decisions, newest last.
     #[serde(default)]
     pub dispatch: Vec<DispatchDecision>,
 }
 
 /// The simulator.
 ///
-/// The fields are crate-private: the engine's invariants (the heap mirroring
-/// the busy tools, every lot in exactly one queue) only hold if nothing else
-/// mutates them. Callers read through [`Simulation::view`] and
-/// [`Simulation::snapshot`].
+/// The fields are crate-private: the heap/queue invariants only hold if
+/// nothing outside this module mutates them.
 #[derive(Debug)]
 pub struct Simulation {
     pub(crate) scenario: Scenario,
@@ -253,8 +228,6 @@ impl Simulation {
                 (runtime.equipment.id.clone(), runtime)
             })
             .collect();
-        // Start at wall-clock time so the derived time series carries real
-        // timestamps; the schedule itself stays relative.
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
@@ -302,7 +275,6 @@ impl Simulation {
         })
     }
 
-    /// Choose a different dispatch rule (used by the offline what-if).
     #[must_use]
     pub fn with_rule(mut self, rule: DispatchRule) -> Self {
         self.rule = rule;
@@ -507,8 +479,6 @@ impl Simulation {
                         tracing::warn!(%error, lot = %event.lot_id, "replay could not create lot");
                     }
                 }
-                // A replay must also restore the release schedule, or the
-                // engine would re-release the lots it just rebuilt.
                 if let Some(serial) = event
                     .lot_id
                     .strip_prefix("LOT-")
@@ -977,8 +947,6 @@ impl Simulation {
             .get(lot_id)
             .is_some_and(|aggregate| aggregate.step_finished(step_no));
         if held {
-            // The hold survives the step: record where the material now stands
-            // and leave the lot out of the queues until an operator releases it.
             if all_done {
                 match self.route.next_step(step_no) {
                     Some(next) => self.advance_while_held(lot_id, next, output),
@@ -1613,7 +1581,6 @@ impl Simulation {
         }
     }
 
-    /// Operator actions, used by the API and the dashboard.
     pub fn hold_lot(&mut self, lot_id: &str, reason: &str) -> Result<Vec<DomainEvent>, SimError> {
         let mut ids = self.ids_base();
         let now_ms = self.state.now_ms;
@@ -1756,7 +1723,6 @@ impl Simulation {
         }
     }
 
-    /// The lot's aggregate, or the error the API reports as 404.
     fn aggregate_mut(&mut self, lot_id: &str) -> Result<&mut LotAggregate, SimError> {
         self.state
             .lots
@@ -1782,7 +1748,6 @@ mod tests {
     fn scenario() -> Scenario {
         let mut scenario =
             Scenario::from_json(include_str!("../../../config/scenario.json")).unwrap();
-        // Keep tests short and deterministic: no random failures.
         scenario.failure_probability = 0.0;
         scenario.lot_count = 2;
         scenario.wafers_per_lot = 4;
@@ -1811,7 +1776,6 @@ mod tests {
         assert_eq!(first.lot.state, LotState::Completed);
         assert_eq!(first.active_count(), 4);
         assert!(first.wafers.iter().all(|w| w.state == WaferState::Done));
-        // Four steps: one track-in and one track-out each, per lot.
         let track_outs = events
             .iter()
             .filter(|e| e.kind() == EventKind::TrackOut)
@@ -1826,7 +1790,6 @@ mod tests {
         let mut scenario = scenario();
         scenario.lot_count = priorities.len();
         let mut sim = Simulation::new(scenario).unwrap();
-        // Make all lots due at once.
         sim.state.next_release_ms = 0;
         sim.state.released_lots = priorities.len();
         sim.state.lots.clear();
@@ -1987,8 +1950,6 @@ mod tests {
         let released = sim.state.released_lots;
         assert!(released >= 2, "several lots were released: {released}");
 
-        // Rebuild from the log alone (as a restart does when the snapshot is
-        // older than the events).
         let mut fresh = Simulation::new(scenario).unwrap();
         fresh.state.now_ms = sim.state.now_ms;
         for event in &events {

@@ -1,7 +1,7 @@
 # Model check: the lot lifecycle
 
 Checked with [everystate](https://github.com/mattzcarey/everystate) 0.4.0
-through `scripts/verify-models.sh`, at `a593524`.
+through `scripts/verify-models.sh`, at `40bf781`.
 
 ```sh
 ./scripts/verify-models.sh

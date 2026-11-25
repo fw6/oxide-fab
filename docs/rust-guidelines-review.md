@@ -233,6 +233,10 @@ holes listed in §2.
 
 ## Stage 2: typed event payloads
 
+Implemented 2026-11-25 (PR #32): `EventData` has one variant per `EventKind`,
+`DomainEvent::kind()` is derived from it, and the wire shape is unchanged.
+The proposal below is kept as the record of what the review asked for.
+
 If there is one structural change worth making next, it is this. The event
 vocabulary is the system's single source of truth, and it is the only place
 where the type system stops at the boundary:

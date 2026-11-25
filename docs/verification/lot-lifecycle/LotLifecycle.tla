@@ -1,7 +1,7 @@
 ---------------- MODULE LotLifecycle ----------------
 \* A model of the lot lifecycle, not of the whole fab.
 \*
-\* Code this models (as of a593524):
+\* Code this models (as of 40bf781):
 \*
 \*   Hold      = `LotAggregate::hold` (crates/oxide-core/src/state_machine.rs):
 \*               sets OnHold and records the reason.

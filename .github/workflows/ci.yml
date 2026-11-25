@@ -1,12 +1,5 @@
 name: CI
 
-# Runs on every push and pull request, and is reused by release.yml so a tag
-# cannot publish anything that this workflow has not verified.
-#
-# Phase 2 changed the UI deliverable: the workbench is a desktop application
-# (macOS, Windows, Linux), the 3D viewport is wgpu, and every target is built,
-# packaged and run on its own runner. The web and TUI packages are gone.
-
 on:
   push:
     branches: [main]
@@ -24,9 +17,6 @@ on:
 permissions:
   contents: read
 
-# A push that supersedes a pull request run cancels it: the matrix costs minutes
-# per OS and the older commit is already stale. Pushes to main are left alone so
-# every merged commit keeps its verification, and release.yml passes its own ref.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -53,9 +43,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: A software Vulkan device for the renderer tests
-        # oxide-render's tests draw real frames. On a runner that means a
-        # software adapter (lavapipe), which is the same path CI uses for the
-        # packaged app's evidence.
         run: |
           set -euo pipefail
           sudo apt-get update
@@ -76,13 +63,10 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      # Action pins, the apt cache, the MSRV, the service port and the desktop
-      # package layout. Each check names the fix; see scripts/check-consistency.py.
+      # See scripts/check-consistency.py; every failure names the fix.
       - name: Repository invariants
         run: python3 scripts/check-consistency.py
 
-      # SC2012 (`ls` where a glob belongs) was fixed twice, in a script and in
-      # CI. The gate makes a third occurrence impossible.
       - name: shellcheck
         run: shellcheck -e SC1091 scripts/*.sh
 
@@ -107,8 +91,6 @@ jobs:
         with:
           node-version: 22
 
-      # Each config carries its expected answer: a past defect must fail on the
-      # invariant it broke, and the current code must pass.
       - name: Model checks
         run: ./scripts/verify-models.sh
 
@@ -119,8 +101,6 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Restored before the Rust target so the cached artefacts keep their newer
-      # mtimes; see the desktop job.
       - name: Cache the nsh runner workspace
         uses: actions/cache@v4
         with:
@@ -148,8 +128,7 @@ jobs:
       - name: nsh version
         run: nsh --version
 
-      # The UI is its own Cargo workspace, so the root job's clippy gate does
-      # not see it. Same policy, same flags.
+      # The UI is its own Cargo workspace; the root clippy gate does not see it.
       - name: cargo fmt and clippy (the UI's own workspace)
         run: |
           cargo fmt --manifest-path crates/oxide-ui/Cargo.toml --all -- --check
@@ -182,8 +161,6 @@ jobs:
 
   desktop:
     name: desktop ${{ matrix.target }} (package, run, screenshot)
-    # Only the lint gate: these jobs build the UI themselves, so waiting for the
-    # UI lint job would put two independent matrices end to end.
     needs: lint-and-test
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
@@ -203,12 +180,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # nsh regenerates crates/oxide-ui/.nsh on checkout, and a fresh runner
-      # workspace rebuilds for minutes (11 min on this machine; 5 s when the
-      # workspace is already there). It is restored *before* the Rust target so
-      # the cached artefacts keep their newer mtimes - restored the other way
-      # round, cargo treats every source as changed and rebuilds anyway.
-      # nsh.json, the UI lockfile and the nsh release pin what it may contain.
+      # Restored before the Rust target so the cached artefacts keep their
+      # newer mtimes; the other order makes cargo treat every source as changed.
       - name: Cache the nsh runner workspace
         uses: actions/cache@v4
         with:
@@ -226,7 +199,6 @@ jobs:
             .
             crates/oxide-ui
 
-      # The desktop UI links WebKitGTK; the shared action owns the base set.
       - uses: ./.github/actions/native-deps
         if: runner.os == 'Linux'
         with:
@@ -253,7 +225,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The inner script is single-quoted on purpose: $! and $pid belong to it.
           # shellcheck disable=SC2016
           xvfb-run -a -s "-screen 0 1600x1000x24" bash -c '
             set -euo pipefail
@@ -282,10 +253,8 @@ jobs:
         shell: pwsh
         run: |
           $env:OXIDE_DEMO = "1"
-          # The runner's desktop is smaller than the app's 1500x940 window, and a
-          # window larger than the desktop captures with blank strips. Ask for a
-          # 1600x1000 virtual display where the cmdlet exists; the capture below
-          # falls back to the window's minimum size when it does not.
+          # Ask for a display larger than the window where the cmdlet exists;
+          # the capture falls back to the window's minimum size when it does not.
           try {
             Set-DisplayResolution -Width 1600 -Height 1000 -ErrorAction Stop
             Start-Sleep -Seconds 2
@@ -325,7 +294,6 @@ jobs:
           if ($screen.Width -ge 1500 -and $screen.Height -ge 940) {
             $width = 1500; $height = 940
           } else {
-            # The minimum the app itself declares; the layout is narrower there.
             $width = 1120; $height = 720
           }
           Write-Host "desktop $($screen.Width)x$($screen.Height); window ${width}x${height}"
@@ -407,7 +375,6 @@ jobs:
 
   integration:
     name: docker compose, smoke, chaos
-    # The stack is built from source in Docker; it does not use the UI workspace.
     needs: lint-and-test
     runs-on: ubuntu-latest
     timeout-minutes: 90

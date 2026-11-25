@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 """Fail on the repository invariants that hand edits keep breaking.
 
-Every check names the file, the conflicting value and the fix. The classes come
-from the fix commits: action pins drifted between jobs, the apt cache path was
-root-owned twice, the service port lived in nine places, the Rust version in
-five, and a sed edit once left comment lines inside a YAML block scalar.
+Every check names the file, the conflicting value and the fix.
 """
 
 from __future__ import annotations
@@ -162,13 +159,28 @@ def check_desktop_layout() -> None:
                 )
 
 
-def check_block_scalars() -> None:
-    """Catch comment lines that a sed edit left inside a data block.
+def check_window_size() -> None:
+    nsh = json.loads(text("crates/oxide-ui/nsh.json"))
+    window = nsh.get("window", {})
+    sizes = (
+        ("default", window.get("defaultSize", {})),
+        ("minimum", window.get("minSize", {})),
+    )
+    for path in ("ci.yml", "release.yml"):
+        body = text(f".github/workflows/{path}")
+        for name, size in sizes:
+            for axis in ("width", "height"):
+                value = str(size.get(axis))
+                if value not in body:
+                    fail(
+                        f".github/workflows/{path}: the {name} window {axis} {value} "
+                        "from crates/oxide-ui/nsh.json is missing. The screenshot step "
+                        "sizes the window to these; use the value from nsh.json."
+                    )
 
-    A `#` line inside a shell `run: |` is a shell comment. Inside
-    `workspaces: |` it is data handed to rust-cache, which is how a botched
-    edit turned a comment into a cache path.
-    """
+
+def check_block_scalars() -> None:
+    """A `#` line inside `workspaces: |` is data, not a YAML comment."""
     for path in workflows() + actions():
         inside = False
         indent = 0
@@ -199,6 +211,7 @@ def main() -> int:
     check_app_version()
     check_service_port()
     check_desktop_layout()
+    check_window_size()
     check_block_scalars()
     if ERRORS:
         for message in ERRORS:
