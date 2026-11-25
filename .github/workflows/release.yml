@@ -133,7 +133,7 @@ jobs:
       # Restored before the Rust target; see the note in ci.yml. Without it every
       # release cut rebuilds the nsh runner workspace from nothing.
       - name: Cache the nsh runner workspace
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: crates/oxide-ui/.nsh
           key: nsh-${{ runner.os }}-${{ env.NSH_VERSION }}-${{ hashFiles('crates/oxide-ui/nsh.json', 'crates/oxide-ui/Cargo.lock') }}
