@@ -1,0 +1,31 @@
+scripts/verify-models.sh
+  s_4855c28dcb0c5e::t_31587857caef22 55
+  s_4855c28dcb0c5e::t_3fe8f5efa603fe 1-54,56-59
+.agents/skills/verify-models/SKILL.md
+  s_4855c28dcb0c5e::t_043a1adeed22fe 1-69
+.github/workflows/ci.yml
+  s_4855c28dcb0c5e::t_bcdf965b4fcf15 89-104
+docs/verification/lot-lifecycle/LotLifecycle.tla
+  s_4855c28dcb0c5e::t_91484befeda808 1-72,76-78,82-127
+  s_4855c28dcb0c5e::t_6b87ff119c74a4 73-75,79-81
+docs/verification/lot-lifecycle/README.md
+  s_4855c28dcb0c5e::t_0e84ffeae8eca1 1-50
+docs/verification/write-path/README.md
+  s_4855c28dcb0c5e::t_582bd905ba472e 6-9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.52-trip",
+  "base_commit_sha": "8473af74fc873422b3c687260e8f6be4c5e0c0d0",
+  "prompts": {},
+  "sessions": {
+    "s_4855c28dcb0c5e": {
+      "agent_id": {
+        "tool": "zcode",
+        "id": "sess_46e72969-cec6-4d7f-94a8-df9540ef4aaa",
+        "model": "claude-deepseek-v4.1-flash[1M]"
+      },
+      "human_author": "mekhi <lyman.von9506@gmail.com>"
+    }
+  }
+}
